@@ -1,0 +1,22 @@
+CREATE TYPE user_role AS ENUM ('user', 'admin', 'superadmin');
+
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    user_id VARCHAR NOT NULL UNIQUE,
+    email VARCHAR NOT NULL UNIQUE,
+    username VARCHAR NOT NULL UNIQUE,
+    name VARCHAR NOT NULL,
+    avatar_url VARCHAR,
+    role user_role NOT NULL DEFAULT 'user',
+    password_hash VARCHAR,
+    status VARCHAR DEFAULT 'active',
+    email_verified_at TIMESTAMP NOT NULL,
+    last_login_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    deleted_at TIMESTAMP
+);
+
+CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_users_status ON users(status);
+CREATE INDEX idx_users_user_id ON users(user_id);

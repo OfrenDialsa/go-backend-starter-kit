@@ -1,0 +1,36 @@
+name: go-gin-starter
+services:
+  api:
+    container_name: starter-api
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: starter-api
+    ports:
+      - "${API_PORT:-8000}:${API_INTERNAL_PORT:-8000}"
+    env_file:
+      - env/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: starter-postgres
+    environment:
+      POSTGRES_DB: go-gin-starter
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d go-gin-starter"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+volumes:
+  pgdata:
