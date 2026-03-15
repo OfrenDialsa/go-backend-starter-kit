@@ -11,8 +11,8 @@ type LoginRequest struct {
 	Identifier string `json:"identifier" binding:"required"`
 	Password   string `json:"password" binding:"required"`
 
-	IPAddress string `json:"-"`
-	UserAgent string `json:"-"`
+	IPAddress string `json:"-" swaggerignore:"true"`
+	UserAgent string `json:"-" swaggerignore:"true"`
 }
 
 type RegisterResponse struct {

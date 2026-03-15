@@ -2,8 +2,6 @@ basePath: /
 definitions:
   dto.ChangePasswordRequest:
     properties:
-      '-':
-        type: string
       current:
         type: string
       new:
@@ -127,8 +125,6 @@ definitions:
     type: object
   dto.UserDeleteAccountRequest:
     properties:
-      '-':
-        type: string
       password:
         type: string
     type: object

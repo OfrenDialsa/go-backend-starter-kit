@@ -10,12 +10,12 @@ type GetMeResponse struct {
 }
 
 type UpdateProfileRequest struct {
-	UserId    string
-	Ip        string
-	Ua        string
+	UserId    string                `json:"-" swaggerignore:"true"`
+	Ip        string                `json:"-" swaggerignore:"true"`
+	Ua        string                `json:"-" swaggerignore:"true"`
 	Name      string                `json:"name" form:"name"`
 	Avatar    *multipart.FileHeader `form:"avatar"`
-	AvatarURL string                `form:"-"`
+	AvatarURL string                `form:"-" swaggerignore:"true"`
 }
 
 type UpdateProfileResponse struct {
@@ -43,14 +43,14 @@ type UserProfileData struct {
 }
 
 type ChangePasswordRequest struct {
-	UserId             string `form:"-"`
-	SessionId          string `form:"-"`
+	UserId             string `json:"-" swaggerignore:"true"`
+	SessionId          string `json:"-" swaggerignore:"true"`
 	Current            string `json:"current" binding:"required"`
 	New                string `json:"new" binding:"required"`
 	RevokeOtherSession *bool  `json:"revoke_other_session" binding:"required"`
 }
 
 type UserDeleteAccountRequest struct {
-	UserId   string `form:"-"`
+	UserId   string `json:"-" swaggerignore:"true"`
 	Password string `json:"password"`
 }

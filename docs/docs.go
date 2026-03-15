@@ -610,9 +610,6 @@ const docTemplate = `{
                 "revoke_other_session"
             ],
             "properties": {
-                "-": {
-                    "type": "string"
-                },
                 "current": {
                     "type": "string"
                 },
@@ -794,9 +791,6 @@ const docTemplate = `{
         "dto.UserDeleteAccountRequest": {
             "type": "object",
             "properties": {
-                "-": {
-                    "type": "string"
-                },
                 "password": {
                     "type": "string"
                 }
