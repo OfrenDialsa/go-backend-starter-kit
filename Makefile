@@ -1,14 +1,37 @@
-.PHONY: help dev-up dev-down dev-build dev-restart dev-logs migrate-up migrate-down migrate-status build run clean mocks clean-mocks test
+.PHONY: help dev-up dev-down dev-build dev-restart dev-logs migrate-up migrate-down migrate-status build run clean mocks clean-mocks test monitor-up monitor-down monitor-logs monitor-restart
 
 DC = docker-compose --env-file env/.env -f docker-compose.yml
+DC_MONITORING = docker-compose -f docker/monitoring/docker-compose.yml
 DB_CONTAINER = postgres-starter
 DB_USER = postgres
 DB_NAME = go-gin-starter
 API_CONTAINER=api
 
+MOCKERY := ~/go/bin/mockery
+REPO_DIR := internal/repository
+SERVICE_DIR := internal/service
+STORAGE_DIR := external/storage
+MOCK_DIR := tests/mocks
+MOCK_PKG := mocks
+
+FEATURE_NAME=$(name)
+
+create-repo:
+	@chmod +x script/create_repository.sh
+	@./script/create_repository.sh $(FEATURE_NAME)
+
+create-service:
+	@chmod +x script/create_service.sh
+	@./script/create_service.sh $(FEATURE_NAME)
+
+create-handler:
+	@chmod +x script/create_handler.sh
+	@./script/create_handler.sh $(FEATURE_NAME)
+
 create-feature:
-	@chmod +x create_feature.sh
-	@./create_feature.sh $(feature)
+	@$(MAKE) create-repo name=$(FEATURE_NAME)
+	@$(MAKE) create-service name=$(FEATURE_NAME)
+	@$(MAKE) create-handler name=$(FEATURE_NAME)
 
 swag-init:
 	swag init -g main.go --output docs
@@ -37,6 +60,18 @@ logs-api:
 ps:
 	$(DC) ps
 
+monitor-up:
+	$(DC_MONITORING) up -d
+
+monitor-down:
+	$(DC_MONITORING) down
+
+monitor-logs:
+	$(DC_MONITORING) logs -f
+
+monitor-restart:
+	$(DC_MONITORING) restart
+
 migrate-create:
 	@if [ -z "$(name)" ]; then \
 		echo "=X= Error: 'name' is required. Usage: make migrate-create name=migrastion_name"; \
@@ -56,8 +91,34 @@ migrate-status:
 db-shell:
 	docker exec -it $(DB_CONTAINER) psql -U $(DB_USER) -d $(DB_NAME)
 
-test:
-	go test ./... -v
 
 clean:
 	go clean
+
+mocks:
+	@echo "Generating repository mocks..."
+	@mkdir -p $(MOCK_DIR)
+	$(MOCKERY) \
+		--all \
+		--dir $(REPO_DIR) \
+		--output $(MOCK_DIR) \
+		--outpkg $(MOCK_PKG) \
+		--case snake \
+		--disable-version-string \
+		--quiet
+
+	@echo "Generating specific mocks..."
+	$(MOCKERY) --name TxStarter --dir $(SERVICE_DIR) --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string --quiet
+	$(MOCKERY) --name StorageService --dir $(STORAGE_DIR) --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string --quiet
+	
+	@echo "Generating external mocks (pgx.Tx)..."
+	$(MOCKERY) --name Tx --srcpkg github.com/jackc/pgx/v5 --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string --quiet
+	
+	@echo "Generating mailer mock..."
+	$(MOCKERY) --name Sender --dir internal/mailer --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --structname MockMailer --case snake --disable-version-string --quiet
+	
+	@echo "✅ Done generating mocks"
+
+test:
+	go test -v -coverprofile=coverage.out -covermode=atomic -coverpkg=./internal/service/... ./tests/...
+	@go tool cover -func=coverage.out | tail -1

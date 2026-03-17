@@ -6,6 +6,7 @@ import (
 	"github/OfrenDialsa/go-gin-starter/cmd/api"
 	"github/OfrenDialsa/go-gin-starter/config"
 	"github/OfrenDialsa/go-gin-starter/database"
+	"github/OfrenDialsa/go-gin-starter/internal/metrics"
 	"net/http"
 	"os"
 	"os/signal"
@@ -61,9 +62,15 @@ func main() {
 		}
 	}()
 
+	log.Info().Msg("Initializing Prometheus Metrics...")
+	metrics.Init()
+
 	srv := &http.Server{
-		Addr:    fmt.Sprintf("%s", env.App.Host),
-		Handler: setup.Router,
+		Addr:         fmt.Sprintf("%s", env.App.Host),
+		Handler:      setup.Router,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 
 	go func() {

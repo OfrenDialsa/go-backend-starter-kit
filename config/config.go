@@ -110,6 +110,10 @@ type EnvironmentVariable struct {
 			UsePathStyle bool   `mapstructure:"USE_PATH_STYLE"`
 		} `mapstructure:"S3"`
 	} `mapstructure:"STORAGE"`
+	Prometheus struct {
+		Username string `mapstructure:"USERNAME"`
+		Password string `mapstructure:"PASSWORD"`
+	} `mapstructure:"PROMETHEUS"`
 }
 
 func (e *EnvironmentVariable) validateRequiredValue() error {

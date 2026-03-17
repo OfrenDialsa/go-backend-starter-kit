@@ -4,10 +4,12 @@ import (
 	"github/OfrenDialsa/go-gin-starter/config"
 	_ "github/OfrenDialsa/go-gin-starter/docs"
 	"github/OfrenDialsa/go-gin-starter/internal/handler"
+	"github/OfrenDialsa/go-gin-starter/internal/metrics"
 	"github/OfrenDialsa/go-gin-starter/middleware"
-	"github/OfrenDialsa/go-gin-starter/router/features"
+	apiV1 "github/OfrenDialsa/go-gin-starter/router/api/v1"
 
 	"github.com/gin-contrib/cors"
+	"github.com/gin-contrib/pprof"
 	"github.com/gin-gonic/gin"
 )
 
@@ -21,6 +23,7 @@ type Handler struct {
 func NewRouter(env *config.EnvironmentVariable, h Handler) *gin.Engine {
 	router := gin.Default()
 	router.Use(cors.Default())
+	router.Use(metrics.PrometheusMiddleware())
 
 	base := router.Group("/")
 	{
@@ -42,12 +45,15 @@ func NewRouter(env *config.EnvironmentVariable, h Handler) *gin.Engine {
 
 		v1 := base.Group("/api/v1")
 		{
-			features.AuthRoutes(v1, h.AuthHandler, h.Middleware)
-			features.UserRoutes(v1, h.UserHandler, h.Middleware)
+			apiV1.AuthRoutes(v1, h.AuthHandler, h.Middleware)
+			apiV1.UserRoutes(v1, h.UserHandler, h.Middleware)
 		}
+
+		PrometheusRouter(env, router)
 
 		if env.App.Mode == "dev" {
 			setupSwagger(base, env)
+			pprof.Register(router)
 		}
 	}
 	return router

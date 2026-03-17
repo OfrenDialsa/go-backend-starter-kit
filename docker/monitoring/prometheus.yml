@@ -1,0 +1,7 @@
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: "go-gin-app"
+    static_configs:
+      - targets: ["starter-api:8080"]

@@ -342,6 +342,7 @@ func (s *authServiceImpl) ResetPassword(ctx context.Context, token string, newPa
 	err = s.sessionRepo.DeleteSession(ctx, session.SessionId)
 	if err != nil {
 		log.Warn().Err(err).Str("session_id", session.SessionId).Msg("failed to delete reset token after use")
+		return err
 	}
 
 	log.Info().
