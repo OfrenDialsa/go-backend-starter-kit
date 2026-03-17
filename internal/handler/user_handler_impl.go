@@ -67,8 +67,9 @@ func (u *UserHandlerImpl) GetMe(ctx *gin.Context) {
 // @Accept       mpfd
 // @Produce      json
 // @Security     BearerAuth
-// @Param        name    formData  string  false  "New name of the user"
-// @Param        avatar  formData  file    false  "User avatar image file"
+// @Param        username    formData  string  false  "New username of the user"
+// @Param        name        formData  string  false  "New name of the user"
+// @Param        avatar      formData  file    false  "User avatar image file"
 // @Success      200  {object}  lib.APIResponse{data=dto.UpdateProfileResponse} "Profile updated successfully"
 // @Failure      400  {object}  lib.HTTPError "Bad Request: Invalid input"
 // @Failure      401  {object}  lib.HTTPError "Unauthorized"
@@ -89,11 +90,16 @@ func (u *UserHandlerImpl) UpdateProfile(ctx *gin.Context) {
 	}
 
 	req.UserId = claims.UserId
+	req.Username = strings.TrimSpace(req.Username)
 	req.Name = strings.TrimSpace(req.Name)
 
-	if req.Name == "" && req.Avatar == nil {
+	if req.Username == "" && req.Name == "" && req.Avatar == nil {
 		lib.RespondError(ctx, http.StatusBadRequest, "At least name or avatar must be provided", nil)
 		return
+	}
+
+	if req.Username != "" {
+		req.Username = strings.Join(strings.Fields(req.Username), " ")
 	}
 
 	if req.Name != "" {
@@ -146,12 +152,14 @@ func (u *UserHandlerImpl) UpdateProfile(ctx *gin.Context) {
 	if err != nil {
 		log.Error().Err(err).Str("userId", claims.UserId).Msg("Error in UpdateProfile Service")
 
-		if err == lib.ErrorMessageUserNotFound {
+		switch err {
+		case lib.ErrorMessageUserNotFound:
 			lib.RespondError(ctx, http.StatusNotFound, err.Error(), err)
-			return
+		case lib.ErrorMessageUsernameNotAvailable:
+			lib.RespondError(ctx, http.StatusNotFound, err.Error(), err)
+		default:
+			lib.RespondError(ctx, http.StatusInternalServerError, "Internal server error", err)
 		}
-
-		lib.RespondError(ctx, http.StatusInternalServerError, "Internal server error", err)
 		return
 	}
 
@@ -253,4 +261,39 @@ func (u *UserHandlerImpl) DeleteAccount(ctx *gin.Context) {
 	}
 
 	lib.RespondSuccess(ctx, http.StatusOK, "Account deleted successfully", nil)
+}
+
+// DeleteAvatar godoc
+// @Summary      Delete user avatar
+// @Description  Deletes the current authenticated user's avatar image and sets the URL to null.
+// @Tags         Users
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200  {object}  lib.APIResponse "Avatar deleted successfully"
+// @Failure      401  {object}  lib.HTTPError "Unauthorized"
+// @Failure      404  {object}  lib.HTTPError "User not found"
+// @Failure      500  {object}  lib.HTTPError "Internal Server Error"
+// @Router       /api/v1/users/me/avatar [delete]
+func (u *UserHandlerImpl) DeleteAvatar(ctx *gin.Context) {
+	claims := ctx.MustGet("user").(*lib.JWTClaims)
+	if claims == nil {
+		lib.RespondError(ctx, http.StatusUnauthorized, "unauthorized: missing context", nil)
+		return
+	}
+
+	err := u.userService.DeleteAvatar(ctx.Request.Context(), claims.UserId)
+	if err != nil {
+		log.Error().Err(err).Str("userId", claims.UserId).Msg("Error in DeleteAvatar Handler")
+
+		switch err {
+		case lib.ErrorMessageUserNotFound:
+			lib.RespondError(ctx, http.StatusNotFound, err.Error(), err)
+		default:
+			lib.RespondError(ctx, http.StatusInternalServerError, "Internal server error", err)
+		}
+		return
+	}
+
+	lib.RespondSuccess(ctx, http.StatusOK, "Avatar deleted successfully", nil)
 }

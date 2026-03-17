@@ -65,6 +65,16 @@ func (u *userServiceImpl) UpdateProfile(ctx context.Context, req dto.UpdateProfi
 		return nil, lib.ErrorMessageUserNotFound
 	}
 
+	if req.Username != "" {
+		existingUser, err := u.userRepo.GetByUsername(ctx, req.Username)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check username: %w", err)
+		}
+		if existingUser != nil && existingUser.UserId != req.UserId {
+			return nil, lib.ErrorMessageUsernameNotAvailable
+		}
+	}
+
 	var oldPath string
 	var uploadedFile string
 	var isSuccess bool
@@ -257,6 +267,30 @@ func (u *userServiceImpl) DeleteAccount(ctx context.Context, req dto.UserDeleteA
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
+
+	return nil
+}
+
+func (u *userServiceImpl) DeleteAvatar(ctx context.Context, userId string) error {
+	user, err := u.userRepo.GetByUserId(ctx, userId)
+	if err != nil || user == nil {
+		return lib.ErrorMessageUserNotFound
+	}
+
+	if user.AvatarURL == nil || *user.AvatarURL == "" {
+		return nil
+	}
+
+	oldPath := *user.AvatarURL
+
+	err = u.userRepo.UpdateAvatar(ctx, nil, userId, nil)
+	if err != nil {
+		return err
+	}
+
+	go func(path string) {
+		u.storage.DeleteFile(context.Background(), path)
+	}(oldPath)
 
 	return nil
 }

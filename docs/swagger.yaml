@@ -533,6 +533,10 @@ paths:
       - multipart/form-data
       description: Updates the name and avatar URL of the authenticated user.
       parameters:
+      - description: New username of the user
+        in: formData
+        name: username
+        type: string
       - description: New name of the user
         in: formData
         name: name
@@ -572,6 +576,36 @@ paths:
       security:
       - BearerAuth: []
       summary: Update user profile
+      tags:
+      - Users
+  /api/v1/users/me/avatar:
+    delete:
+      consumes:
+      - application/json
+      description: Deletes the current authenticated user's avatar image and sets
+        the URL to null.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Avatar deleted successfully
+          schema:
+            $ref: '#/definitions/lib.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/lib.HTTPError'
+        "404":
+          description: User not found
+          schema:
+            $ref: '#/definitions/lib.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/lib.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Delete user avatar
       tags:
       - Users
   /api/v1/users/me/password:

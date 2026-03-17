@@ -14,6 +14,7 @@ func UserRoutes(rg *gin.RouterGroup, h handler.UserHandler, mw middleware.Middle
 		users.GET("/me", h.GetMe)
 		users.PUT("/me", h.UpdateProfile)
 		users.PUT("/me/password", h.ChangePassword)
+		users.DELETE("/me/avatar", h.DeleteAvatar)
 		users.DELETE("/me", h.GetMe)
 	}
 }
