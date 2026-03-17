@@ -45,8 +45,8 @@ func (h *${CAMEL_FEATURE_NAME}HandlerImpl) Get(ctx *gin.Context) {
 }
 EOF
 
-cat > router/features/${FEATURE_NAME}_router.go << EOF
-package features
+cat > router/api/v1/${FEATURE_NAME}_router.go << EOF
+package v1
 
 import (
     "github/OfrenDialsa/go-gin-starter/internal/handler"
@@ -66,7 +66,7 @@ EOF
 sed -i "/type Handlers struct {/a \    ${PASCAL_FEATURE_NAME} handler.${PASCAL_FEATURE_NAME}Handler" cmd/api/handlers.go
 sed -i "/return Handlers{/a \        ${PASCAL_FEATURE_NAME}: handler.New${PASCAL_FEATURE_NAME}Handler(s.${PASCAL_FEATURE_NAME})," cmd/api/handlers.go
 sed -i "/UserHandler handler.UserHandler/a \    ${PASCAL_FEATURE_NAME}Handler handler.${PASCAL_FEATURE_NAME}Handler" router/router.go
-sed -i "/features.UserRoutes(v1, h.UserHandler, h.Middleware)/a \            features.${PASCAL_FEATURE_NAME}Routes(v1, h.${PASCAL_FEATURE_NAME}Handler, h.Middleware)" router/router.go
+sed -i "/apiV1.UserRoutes(v1, h.UserHandler, h.Middleware)/a \            apiV1.${PASCAL_FEATURE_NAME}Routes(v1, h.${PASCAL_FEATURE_NAME}Handler, h.Middleware)" router/router.go
 sed -i "/UserHandler: handlers.User,/a \        ${PASCAL_FEATURE_NAME}Handler: handlers.${PASCAL_FEATURE_NAME}," cmd/api/init.go
 
 echo "✅ Handler and Router created."
