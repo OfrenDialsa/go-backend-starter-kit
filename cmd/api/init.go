@@ -9,7 +9,6 @@ import (
 	"github/OfrenDialsa/go-gin-starter/router"
 
 	"github.com/gin-gonic/gin"
-	"github.com/mailgun/mailgun-go"
 	"github.com/rs/zerolog/log"
 )
 
@@ -21,9 +20,7 @@ type Setup struct {
 }
 
 func Init(env *config.EnvironmentVariable, wrapDB *database.WrapDB) (*Setup, error) {
-
-	mg := mailgun.NewMailgun(env.Mail.Mailgun.Domain, env.Mail.Mailgun.ApiKey)
-	sender := mailer.NewMailgunMailer(mg, env.Mail.From, env.Mail.FromName)
+	sender := mailer.NewSMTPMailer(env, env.Mail.From, env.Mail.FromName)
 	repository := NewRepositories(env, wrapDB)
 
 	extService, err := external.NewExternalService(env)
@@ -36,7 +33,7 @@ func Init(env *config.EnvironmentVariable, wrapDB *database.WrapDB) (*Setup, err
 
 	handlers := NewHandlers(env, service, repository)
 
-	mw := middleware.NewMiddleware(env, repository.User, repository.Session)
+	mw := middleware.NewMiddleware(env, wrapDB, repository.User, repository.Session)
 
 	r := router.Handler{
 		Env:         env,

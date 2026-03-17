@@ -18,7 +18,7 @@ func NewServices(
 	db *database.WrapDB,
 	r Repositories,
 	ext *external.ExternalService,
-	mailer *mailer.MailgunMailer,
+	mailer *mailer.SmtpMailer,
 ) Services {
 	return Services{
 		Auth: service.NewAuthService(env, db.Database.Conn, r.User, r.Session, mailer),

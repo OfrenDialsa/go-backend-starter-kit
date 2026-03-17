@@ -13,6 +13,7 @@ type UpdateProfileRequest struct {
 	UserId    string                `json:"-" swaggerignore:"true"`
 	Ip        string                `json:"-" swaggerignore:"true"`
 	Ua        string                `json:"-" swaggerignore:"true"`
+	Username  string                `json:"username" form:"username"`
 	Name      string                `json:"name" form:"name"`
 	Avatar    *multipart.FileHeader `form:"avatar"`
 	AvatarURL string                `form:"-" swaggerignore:"true"`

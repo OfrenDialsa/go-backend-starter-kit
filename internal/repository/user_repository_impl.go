@@ -93,6 +93,43 @@ func (r *userRepositoryImpl) GetByEmail(ctx context.Context, email string) (*mod
 	return &user, nil
 }
 
+func (r *userRepositoryImpl) GetByUsername(ctx context.Context, username string) (*model.User, error) {
+	query := `
+		SELECT id, user_id, email, username, password_hash, name, avatar_url, status,
+		       role, email_verified_at, last_login_at, created_at, updated_at, deleted_at
+		FROM users
+		WHERE username = $1 AND deleted_at IS NULL
+		LIMIT 1
+	`
+
+	var user model.User
+	err := r.db.Database.Conn.QueryRow(ctx, query, username).Scan(
+		&user.Id,
+		&user.UserId,
+		&user.Email,
+		&user.Username,
+		&user.PasswordHash,
+		&user.Name,
+		&user.AvatarURL,
+		&user.Status,
+		&user.Role,
+		&user.EmailVerifiedAt,
+		&user.LastLoginAt,
+		&user.CreatedAt,
+		&user.UpdatedAt,
+		&user.DeletedAt,
+	)
+
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user by email or username: %w", err)
+	}
+
+	return &user, nil
+}
+
 func (r *userRepositoryImpl) GetByUserId(ctx context.Context, userId string) (*model.User, error) {
 	query := `
 		SELECT id, user_id, email, username, password_hash, name, avatar_url, status,
@@ -214,6 +251,24 @@ func (r *userRepositoryImpl) Update(ctx context.Context, tx pgx.Tx, user *model.
 	return nil
 }
 
+func (r *userRepositoryImpl) UpdateAvatar(ctx context.Context, tx pgx.Tx, userId string, avatarUrl *string) error {
+	query := `
+		UPDATE users 
+		SET avatar_url = $1, updated_at = $2 
+		WHERE user_id = $3 AND deleted_at IS NULL
+	`
+
+	now := time.Now()
+
+	if tx != nil {
+		_, err := tx.Exec(ctx, query, avatarUrl, now, userId)
+		return err
+	}
+
+	_, err := r.db.Database.Conn.Exec(ctx, query, avatarUrl, now, userId)
+	return err
+}
+
 func (r *userRepositoryImpl) UpdateLastLogin(ctx context.Context, userId string, time time.Time) error {
 	query := `
 		UPDATE users
@@ -257,4 +312,36 @@ func (r *userRepositoryImpl) Delete(ctx context.Context, tx pgx.Tx, userId strin
 		return fmt.Errorf("failed to soft delete user: %w", err)
 	}
 	return nil
+}
+
+func (r *userRepositoryImpl) CheckEmailExist(ctx context.Context, email string) (bool, error) {
+	query := `
+		SELECT EXISTS(
+			SELECT 1 FROM users 
+			WHERE email = $1 AND deleted_at IS NULL
+		)
+	`
+	var exists bool
+	err := r.db.Database.Conn.QueryRow(ctx, query, email).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("failed to check email existence: %w", err)
+	}
+
+	return exists, nil
+}
+
+func (r *userRepositoryImpl) CheckUsernameExist(ctx context.Context, username string) (bool, error) {
+	query := `
+		SELECT EXISTS(
+			SELECT 1 FROM users 
+			WHERE username = $1 AND deleted_at IS NULL
+		)
+	`
+	var exists bool
+	err := r.db.Database.Conn.QueryRow(ctx, query, username).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("failed to check username existence: %w", err)
+	}
+
+	return exists, nil
 }

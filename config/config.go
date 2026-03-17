@@ -61,6 +61,12 @@ type EnvironmentVariable struct {
 			Username string `mapstructure:"USERNAME"`
 			Password string `mapstructure:"PASSWORD"`
 		} `mapstructure:"POSTGRES"`
+		Redis struct {
+			IsEnabled bool   `mapstructure:"IS_ENABLED"`
+			Host      string `mapstructure:"HOST"`
+			Port      int    `mapstructure:"PORT"`
+			Password  string `mapstructure:"PASSWORD"`
+		} `mapstructure:"REDIS"`
 	} `mapstructure:"DATABASE"`
 	Swagger struct {
 		BasePath    string `mapstructure:"BASE_PATH"`
@@ -84,11 +90,12 @@ type EnvironmentVariable struct {
 	Mail struct {
 		From     string `mapstructure:"FROM"`
 		FromName string `mapstructure:"FROM_NAME"`
-		Mailgun  struct {
-			Domain string `mapstructure:"DOMAIN"`
-			ApiKey string `mapstructure:"API_KEY"`
-		} `mapstructure:"MAILGUN"`
-		SmtpAddr string `mapstructure:"SMTP_ADDR"`
+		SMTP     struct {
+			Host     string `mapstructure:"HOST"`
+			Port     int    `mapstructure:"PORT"`
+			User     string `mapstructure:"USER"`
+			Password string `mapstructure:"PASSWORD"`
+		} `mapstructure:"SMTP"`
 	} `mapstructure:"MAIL"`
 	Storage struct {
 		Type string `mapstructure:"TYPE"`

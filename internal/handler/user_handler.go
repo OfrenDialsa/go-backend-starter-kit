@@ -7,4 +7,5 @@ type UserHandler interface {
 	UpdateProfile(ctx *gin.Context)
 	ChangePassword(ctx *gin.Context)
 	DeleteAccount(ctx *gin.Context)
+	DeleteAvatar(ctx *gin.Context)
 }

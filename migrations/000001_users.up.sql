@@ -17,6 +17,7 @@ CREATE TABLE users (
     deleted_at TIMESTAMP
 );
 
-CREATE INDEX idx_users_email ON users(email);
 CREATE INDEX idx_users_status ON users(status);
 CREATE INDEX idx_users_user_id ON users(user_id);
+CREATE INDEX idx_users_email_active ON users(email) WHERE deleted_at IS NULL;
+CREATE INDEX idx_users_username_active ON users(username) WHERE deleted_at IS NULL;

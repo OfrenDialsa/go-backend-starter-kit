@@ -1,29 +1,36 @@
 package middleware
 
 import (
+	"fmt"
 	"github/OfrenDialsa/go-gin-starter/config"
+	"github/OfrenDialsa/go-gin-starter/database"
 	"github/OfrenDialsa/go-gin-starter/internal/repository"
 	"github/OfrenDialsa/go-gin-starter/lib"
 	"github/OfrenDialsa/go-gin-starter/utils"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 )
 
 type MiddlewareImpl struct {
 	env         *config.EnvironmentVariable
+	redis       *redis.Client
 	userRepo    repository.UserRepository
 	sessionRepo repository.SessionRepository
 }
 
 func NewMiddleware(
 	env *config.EnvironmentVariable,
+	db *database.WrapDB,
 	userRepo repository.UserRepository,
 	sessionRepo repository.SessionRepository,
 ) Middleware {
 	return &MiddlewareImpl{
 		env:         env,
+		redis:       db.Redis.Conn,
 		userRepo:    userRepo,
 		sessionRepo: sessionRepo,
 	}
@@ -71,6 +78,48 @@ func (m *MiddlewareImpl) Validate(roles ...lib.Role) gin.HandlerFunc {
 		}
 
 		c.Set("user", claims)
+
+		c.Next()
+	}
+}
+
+func (m *MiddlewareImpl) RateLimit(limit int, window time.Duration) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		identifier := c.ClientIP()
+		if user, exists := c.Get("user"); exists {
+			if claims, ok := user.(*lib.JWTClaims); ok {
+				identifier = claims.UserId
+			}
+		}
+
+		key := "rate_limit:" + c.FullPath() + ":" + identifier
+
+		now := time.Now().UnixNano()
+		boundary := time.Now().Add(-window).UnixNano()
+		pipe := m.redis.TxPipeline()
+		pipe.ZRemRangeByScore(c, key, "0", fmt.Sprintf("%d", boundary))
+		countRes := pipe.ZCard(c, key)
+
+		pipe.ZAdd(c, key, redis.Z{
+			Score:  float64(now),
+			Member: now,
+		})
+
+		pipe.Expire(c, key, window)
+		_, err := pipe.Exec(c)
+		if err != nil {
+			lib.RespondError(c, http.StatusInternalServerError, "Rate limit check failed", err)
+			c.Abort()
+			return
+		}
+
+		currentCount := countRes.Val()
+		if int(currentCount) >= limit {
+			c.Header("X-RateLimit-Limit", fmt.Sprintf("%d", limit))
+			lib.RespondError(c, http.StatusTooManyRequests, "Too many requests, please try again later", nil)
+			c.Abort()
+			return
+		}
 
 		c.Next()
 	}

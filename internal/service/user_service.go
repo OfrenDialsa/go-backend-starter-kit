@@ -10,4 +10,5 @@ type UserService interface {
 	ChangePassword(ctx context.Context, req dto.ChangePasswordRequest) error
 	UpdateProfile(ctx context.Context, req dto.UpdateProfileRequest) (*dto.UpdateProfileResponse, error)
 	DeleteAccount(ctx context.Context, req dto.UserDeleteAccountRequest) error
+	DeleteAvatar(ctx context.Context, userId string) error
 }

@@ -12,7 +12,9 @@ import (
 
 func main() {
 	var action string
-	flag.StringVar(&action, "action", "up", "Migration action: up or down")
+	var name string
+	flag.StringVar(&action, "action", "up", "Migration action: up, down, or create")
+	flag.StringVar(&name, "name", "", "Migration name (required for action=create)")
 	flag.Parse()
 
 	env, err := config.LoadEnv()
@@ -41,7 +43,16 @@ func main() {
 			log.Fatal().Err(err).Msg("failed to rollback migrations")
 		}
 		log.Info().Msg("Rollback completed successfully")
+	case "create":
+		if name == "" {
+			log.Fatal().Msg("Migration name is required for 'create' action. Use -name=your_migration_name")
+		}
+		log.Info().Str("name", name).Msg("Creating new migration files...")
+		if err := database.CreateMigration(name); err != nil {
+			log.Fatal().Err(err).Msg("failed to create migration")
+		}
+		log.Info().Msg("Migration files created successfully")
 	default:
-		log.Fatal().Str("action", action).Msg("invalid action. Use 'up' or 'down'")
+		log.Fatal().Str("action", action).Msg("invalid action. Use 'up', 'down', or 'create'")
 	}
 }
