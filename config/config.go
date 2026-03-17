@@ -61,6 +61,12 @@ type EnvironmentVariable struct {
 			Username string `mapstructure:"USERNAME"`
 			Password string `mapstructure:"PASSWORD"`
 		} `mapstructure:"POSTGRES"`
+		Redis struct {
+			IsEnabled bool   `mapstructure:"IS_ENABLED"`
+			Host      string `mapstructure:"HOST"`
+			Port      int    `mapstructure:"PORT"`
+			Password  string `mapstructure:"PASSWORD"`
+		} `mapstructure:"REDIS"`
 	} `mapstructure:"DATABASE"`
 	Swagger struct {
 		BasePath    string `mapstructure:"BASE_PATH"`

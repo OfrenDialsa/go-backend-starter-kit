@@ -195,6 +195,62 @@ info:
   title: Go gin starter template API
   version: "1.0"
 paths:
+  /api/v1/auth/check-email:
+    get:
+      description: Check if an email is already registered
+      parameters:
+      - description: Email to check
+        in: query
+        name: email
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/lib.APIResponse'
+            - properties:
+                data:
+                  additionalProperties:
+                    type: boolean
+                  type: object
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/lib.HTTPError'
+      summary: Check email availability
+      tags:
+      - Auth
+  /api/v1/auth/check-username:
+    get:
+      description: Check if a username is already taken
+      parameters:
+      - description: Username to check
+        in: query
+        name: username
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/lib.APIResponse'
+            - properties:
+                data:
+                  additionalProperties:
+                    type: boolean
+                  type: object
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/lib.HTTPError'
+      summary: Check username availability
+      tags:
+      - Auth
   /api/v1/auth/forgot-password:
     post:
       consumes:

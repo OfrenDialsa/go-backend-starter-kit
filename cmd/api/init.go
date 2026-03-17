@@ -33,7 +33,7 @@ func Init(env *config.EnvironmentVariable, wrapDB *database.WrapDB) (*Setup, err
 
 	handlers := NewHandlers(env, service, repository)
 
-	mw := middleware.NewMiddleware(env, repository.User, repository.Session)
+	mw := middleware.NewMiddleware(env, wrapDB, repository.User, repository.Session)
 
 	r := router.Handler{
 		Env:         env,

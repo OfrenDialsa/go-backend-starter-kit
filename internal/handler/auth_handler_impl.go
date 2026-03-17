@@ -241,3 +241,55 @@ func (h *AuthHandlerImpl) ForgotPassword(ctx *gin.Context) {
 
 	lib.RespondSuccess(ctx, http.StatusOK, lib.MsgPasswordForgotSuccess, nil)
 }
+
+// CheckEmail handles email availability check
+// @Summary Check email availability
+// @Description Check if an email is already registered
+// @Tags Auth
+// @Param email query string true "Email to check"
+// @Success 200 {object} lib.APIResponse{data=map[string]bool}
+// @Failure 400 {object} lib.HTTPError
+// @Router /api/v1/auth/check-email [get]
+func (h *AuthHandlerImpl) CheckEmail(ctx *gin.Context) {
+	email := ctx.Query("email")
+	if email == "" {
+		lib.RespondError(ctx, http.StatusBadRequest, "Email query parameter is required", nil)
+		return
+	}
+
+	exists, err := h.authService.CheckEmail(ctx.Request.Context(), email)
+	if err != nil {
+		lib.RespondError(ctx, http.StatusInternalServerError, "Internal server error", err)
+		return
+	}
+
+	lib.RespondSuccess(ctx, http.StatusOK, "Email availability checked", gin.H{
+		"exists": exists,
+	})
+}
+
+// CheckUsername handles username availability check
+// @Summary Check username availability
+// @Description Check if a username is already taken
+// @Tags Auth
+// @Param username query string true "Username to check"
+// @Success 200 {object} lib.APIResponse{data=map[string]bool}
+// @Failure 400 {object} lib.HTTPError
+// @Router /api/v1/auth/check-username [get]
+func (h *AuthHandlerImpl) CheckUsername(ctx *gin.Context) {
+	username := ctx.Query("username")
+	if username == "" {
+		lib.RespondError(ctx, http.StatusBadRequest, "Username query parameter is required", nil)
+		return
+	}
+
+	exists, err := h.authService.CheckUsername(ctx.Request.Context(), username)
+	if err != nil {
+		lib.RespondError(ctx, http.StatusInternalServerError, "Internal server error", err)
+		return
+	}
+
+	lib.RespondSuccess(ctx, http.StatusOK, "Username availability checked", gin.H{
+		"exists": exists,
+	})
+}

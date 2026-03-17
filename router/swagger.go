@@ -20,11 +20,10 @@ func setupSwagger(base *gin.RouterGroup, env *config.EnvironmentVariable) {
 
 	uiPath := "/swagger"
 	fullPath := fmt.Sprintf("http://%s%s/index.html", env.Swagger.Host, uiPath)
+	base.GET(uiPath+"/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	log.Info().
 		Str("host", env.Swagger.Host).
 		Str("ui_url", fullPath).
 		Msg("Swagger documentation initialized")
-
-	base.GET(uiPath+"/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 }

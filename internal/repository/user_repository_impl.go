@@ -258,3 +258,35 @@ func (r *userRepositoryImpl) Delete(ctx context.Context, tx pgx.Tx, userId strin
 	}
 	return nil
 }
+
+func (r *userRepositoryImpl) CheckEmailExist(ctx context.Context, email string) (bool, error) {
+	query := `
+		SELECT EXISTS(
+			SELECT 1 FROM users 
+			WHERE email = $1 AND deleted_at IS NULL
+		)
+	`
+	var exists bool
+	err := r.db.Database.Conn.QueryRow(ctx, query, email).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("failed to check email existence: %w", err)
+	}
+
+	return exists, nil
+}
+
+func (r *userRepositoryImpl) CheckUsernameExist(ctx context.Context, username string) (bool, error) {
+	query := `
+		SELECT EXISTS(
+			SELECT 1 FROM users 
+			WHERE username = $1 AND deleted_at IS NULL
+		)
+	`
+	var exists bool
+	err := r.db.Database.Conn.QueryRow(ctx, query, username).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("failed to check username existence: %w", err)
+	}
+
+	return exists, nil
+}

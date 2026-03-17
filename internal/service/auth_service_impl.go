@@ -351,3 +351,21 @@ func (s *authServiceImpl) ResetPassword(ctx context.Context, token string, newPa
 
 	return nil
 }
+
+func (s *authServiceImpl) CheckEmail(ctx context.Context, email string) (bool, error) {
+	exists, err := s.userRepo.CheckEmailExist(ctx, email)
+	if err != nil {
+		log.Error().Err(err).Str("email", email).Msg("failed to check email availability")
+		return false, fmt.Errorf("failed to check email: %w", err)
+	}
+	return exists, nil
+}
+
+func (s *authServiceImpl) CheckUsername(ctx context.Context, username string) (bool, error) {
+	exists, err := s.userRepo.CheckUsernameExist(ctx, username)
+	if err != nil {
+		log.Error().Err(err).Str("username", username).Msg("failed to check username availability")
+		return false, fmt.Errorf("failed to check username: %w", err)
+	}
+	return exists, nil
+}

@@ -10,6 +10,7 @@ RUN go mod download
 FROM base AS dev
 RUN go install github.com/air-verse/air@v1.64.5
 COPY . .
+RUN go build -o migrate ./cmd/migrate
 RUN mkdir -p /app/tmp && chmod -R 777 /app/tmp
 CMD ["air", "-c", ".air.toml"]
 

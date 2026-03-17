@@ -19,7 +19,6 @@ type Handler struct {
 }
 
 func NewRouter(env *config.EnvironmentVariable, h Handler) *gin.Engine {
-
 	router := gin.Default()
 	router.Use(cors.Default())
 
