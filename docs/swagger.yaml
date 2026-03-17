@@ -48,12 +48,19 @@ definitions:
       user:
         $ref: '#/definitions/dto.UserData'
     type: object
+  dto.RefreshTokenRequest:
+    properties:
+      refresh_token:
+        type: string
+    type: object
   dto.RefreshTokenResponse:
     properties:
       access_token:
         type: string
       expires_in:
         type: integer
+      refresh_token:
+        type: string
       token_type:
         type: string
     type: object
@@ -231,7 +238,7 @@ paths:
     post:
       consumes:
       - application/json
-      description: Login user and get tokens
+      description: Login user using email or username
       parameters:
       - description: Login Request
         in: body
@@ -297,6 +304,13 @@ paths:
       consumes:
       - application/json
       description: Get a new access token using a valid refresh token
+      parameters:
+      - description: Refresh token Request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.RefreshTokenRequest'
       produces:
       - application/json
       responses:
@@ -317,8 +331,6 @@ paths:
           description: Internal Server Error
           schema:
             $ref: '#/definitions/lib.HTTPError'
-      security:
-      - BearerAuth: []
       summary: Refresh access token
       tags:
       - Auth

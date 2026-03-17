@@ -68,7 +68,7 @@ func (h *AuthHandlerImpl) Register(ctx *gin.Context) {
 
 // Login handles user login
 // @Summary Login user
-// @Description Login user and get tokens
+// @Description Login user using email or username
 // @Tags Auth
 // @Accept json
 // @Produce json
@@ -114,26 +114,31 @@ func (h *AuthHandlerImpl) Login(ctx *gin.Context) {
 // @Tags Auth
 // @Accept json
 // @Produce json
-// @Security BearerAuth
+// @Param request body dto.RefreshTokenRequest true "Refresh token Request"
 // @Success 200 {object} lib.APIResponse{data=dto.RefreshTokenResponse}
 // @Failure 401 {object} lib.HTTPError
 // @Failure 500 {object} lib.HTTPError
 // @Router /api/v1/auth/refresh [post]
 func (h *AuthHandlerImpl) RefreshToken(ctx *gin.Context) {
-	claims := ctx.MustGet("user").(*lib.JWTClaims)
-	if claims == nil {
-		lib.RespondError(ctx, http.StatusUnauthorized, "unauthorized: missing context", nil)
+	var req dto.RefreshTokenRequest
+
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		lib.RespondValidationError(ctx, http.StatusBadRequest, lib.ErrBadPayload, parseValidationErrors(err))
 		return
 	}
 
-	resp, err := h.authService.RefreshToken(ctx.Request.Context(), claims.UserId, claims.SessionId, claims.Role)
+	resp, err := h.authService.RefreshToken(ctx.Request.Context(), req.RefreshToken)
 	if err != nil {
-		if err.Error() == "session invalid or revoked" || err.Error() == "session expired" {
+		switch err.Error() {
+		case "invalid refresh token", "token already used: security breach detected":
 			lib.RespondError(ctx, http.StatusUnauthorized, err.Error(), err)
-			return
+		case "session not found":
+			lib.RespondError(ctx, http.StatusNotFound, "session not found", err)
+		case "session revoked or expired":
+			lib.RespondError(ctx, http.StatusUnauthorized, "session is no longer active, please login again", err)
+		default:
+			lib.RespondError(ctx, http.StatusInternalServerError, "internal server error", err)
 		}
-
-		lib.RespondError(ctx, http.StatusInternalServerError, "Failed to refresh token", err)
 		return
 	}
 

@@ -6,20 +6,24 @@ DB_USER = postgres
 DB_NAME = go-gin-starter
 API_CONTAINER=api
 
+create-feature:
+	@chmod +x create_feature.sh
+	@./create_feature.sh $(feature)
+
 swag-init:
 	swag init -g main.go --output docs
 
 up:
 	$(DC) up -d
 
-down:
-	$(DC) down
-
 build:
 	$(DC) build
 
-f-build:
-	docker compose -f docker-compose.yml up --build
+up-build:
+	$(DC) up --build
+
+down:
+	$(DC) down
 
 restart:
 	$(DC) restart
@@ -32,6 +36,13 @@ logs-api:
 
 ps:
 	$(DC) ps
+
+migrate-create:
+	@if [ -z "$(name)" ]; then \
+		echo "=X= Error: 'name' is required. Usage: make migrate-create name=migrastion_name"; \
+		exit 1; \
+	fi
+	@go run cmd/migrate/main.go -action=create -name=$(name)
 
 migrate-up:
 	$(DC) exec $(API_CONTAINER) /app/migrate -action=up

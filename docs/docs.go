@@ -90,7 +90,7 @@ const docTemplate = `{
         },
         "/api/v1/auth/login": {
             "post": {
-                "description": "Login user and get tokens",
+                "description": "Login user using email or username",
                 "consumes": [
                     "application/json"
                 ],
@@ -194,11 +194,6 @@ const docTemplate = `{
         },
         "/api/v1/auth/refresh": {
             "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
                 "description": "Get a new access token using a valid refresh token",
                 "consumes": [
                     "application/json"
@@ -210,6 +205,17 @@ const docTemplate = `{
                     "Auth"
                 ],
                 "summary": "Refresh access token",
+                "parameters": [
+                    {
+                        "description": "Refresh token Request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/dto.RefreshTokenRequest"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -675,6 +681,14 @@ const docTemplate = `{
                 }
             }
         },
+        "dto.RefreshTokenRequest": {
+            "type": "object",
+            "properties": {
+                "refresh_token": {
+                    "type": "string"
+                }
+            }
+        },
         "dto.RefreshTokenResponse": {
             "type": "object",
             "properties": {
@@ -683,6 +697,9 @@ const docTemplate = `{
                 },
                 "expires_in": {
                     "type": "integer"
+                },
+                "refresh_token": {
+                    "type": "string"
                 },
                 "token_type": {
                     "type": "string"

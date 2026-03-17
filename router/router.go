@@ -2,16 +2,13 @@ package router
 
 import (
 	"github/OfrenDialsa/go-gin-starter/config"
-	"github/OfrenDialsa/go-gin-starter/docs"
 	_ "github/OfrenDialsa/go-gin-starter/docs"
 	"github/OfrenDialsa/go-gin-starter/internal/handler"
 	"github/OfrenDialsa/go-gin-starter/middleware"
+	"github/OfrenDialsa/go-gin-starter/router/features"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	"github.com/rs/zerolog/log"
-	swaggerFiles "github.com/swaggo/files"
-	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
 type Handler struct {
@@ -21,7 +18,7 @@ type Handler struct {
 	UserHandler handler.UserHandler
 }
 
-func NewRouter(env *config.EnvironmentVariable, handler Handler) *gin.Engine {
+func NewRouter(env *config.EnvironmentVariable, h Handler) *gin.Engine {
 
 	router := gin.Default()
 	router.Use(cors.Default())
@@ -45,38 +42,13 @@ func NewRouter(env *config.EnvironmentVariable, handler Handler) *gin.Engine {
 		})
 
 		v1 := base.Group("/api/v1")
-		middleware := handler.Middleware
 		{
-			auth := v1.Group("/auth")
-			{
-				auth.POST("/register", handler.AuthHandler.Register)
-				auth.POST("/login", handler.AuthHandler.Login)
-				auth.POST("/forgot-password", handler.AuthHandler.ForgotPassword)
-				auth.POST("/reset-password", handler.AuthHandler.ResetPassword)
-
-				auth.POST("/logout", middleware.Validate(), handler.AuthHandler.Logout)
-				auth.POST("/refresh", handler.AuthHandler.RefreshToken)
-			}
-
-			users := v1.Group("/users")
-			{
-				users.GET("/me", middleware.Validate(), handler.UserHandler.GetMe)
-				users.PUT("/me", middleware.Validate(), handler.UserHandler.UpdateProfile)
-				users.PUT("/me/password", middleware.Validate(), handler.UserHandler.ChangePassword)
-				users.DELETE("/me", middleware.Validate(), handler.UserHandler.DeleteAccount)
-			}
+			features.AuthRoutes(v1, h.AuthHandler, h.Middleware)
+			features.UserRoutes(v1, h.UserHandler, h.Middleware)
 		}
 
 		if env.App.Mode == "dev" {
-			docs.SwaggerInfo.BasePath = env.Swagger.BasePath
-			uiPath := "/swagger"
-
-			log.Info().
-				Str("host", env.Swagger.Host).
-				Str("path", uiPath).
-				Msgf("Swagger UI is available at http://%s%s/index.html", env.App.Host, uiPath)
-
-			base.GET(uiPath+"/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+			setupSwagger(base, env)
 		}
 	}
 	return router

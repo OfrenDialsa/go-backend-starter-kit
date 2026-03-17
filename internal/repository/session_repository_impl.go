@@ -56,15 +56,15 @@ func (r *sessionRepositoryImpl) Update(ctx context.Context, session *model.UserS
 	)
 	return err
 }
-
-func (r *sessionRepositoryImpl) GetByToken(ctx context.Context, tokenHash string) (*model.UserSession, error) {
+func (r *sessionRepositoryImpl) GetByToken(ctx context.Context, tokenHash string, tokenType string) (*model.UserSession, error) {
 	query := `
-		SELECT id, session_id, user_id, token_hash, type, ip_address, user_agent, expires_at, created_at, updated_at, revoked_at
-		FROM user_sessions
-		WHERE token_hash = $1 AND revoked_at IS NULL
-	`
+        SELECT id, session_id, user_id, token_hash, type, ip_address, user_agent, expires_at, created_at, updated_at, revoked_at
+        FROM user_sessions
+        WHERE token_hash = $1 AND type = $2
+    `
+
 	var session model.UserSession
-	err := r.db.Database.Conn.QueryRow(ctx, query, tokenHash).Scan(
+	err := r.db.Database.Conn.QueryRow(ctx, query, tokenHash, tokenType).Scan(
 		&session.Id,
 		&session.SessionId,
 		&session.UserId,
@@ -77,21 +77,23 @@ func (r *sessionRepositoryImpl) GetByToken(ctx context.Context, tokenHash string
 		&session.UpdatedAt,
 		&session.RevokedAt,
 	)
+
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("failed to get session by refresh token: %w", err)
+		return nil, fmt.Errorf("failed to get session by token: %w", err)
 	}
 	return &session, nil
 }
 
 func (r *sessionRepositoryImpl) GetBySessionId(ctx context.Context, sessionID string) (*model.UserSession, error) {
 	query := `
-		SELECT id, session_id, user_id, token_hash, type, ip_address, user_agent, expires_at, created_at, updated_at, revoked_at
-		FROM user_sessions
-		WHERE session_id = $1 AND revoked_at IS NULL
-	`
+        SELECT id, session_id, user_id, token_hash, type, ip_address, user_agent, expires_at, created_at, updated_at, revoked_at
+        FROM user_sessions
+        WHERE session_id = $1
+    `
+
 	var session model.UserSession
 	err := r.db.Database.Conn.QueryRow(ctx, query, sessionID).Scan(
 		&session.Id,
@@ -106,6 +108,7 @@ func (r *sessionRepositoryImpl) GetBySessionId(ctx context.Context, sessionID st
 		&session.UpdatedAt,
 		&session.RevokedAt,
 	)
+
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, nil
