@@ -1,4 +1,4 @@
-# --- STAGE 1: BASE (Dependensi) ---
+# --- STAGE 1: BASE ---
 FROM golang:1.26.1-alpine AS base
 WORKDIR /app
 
@@ -6,7 +6,7 @@ RUN apk add --no-cache git
 COPY go.mod go.sum ./
 RUN go mod download
 
-# --- STAGE 2: DEVELOPMENT (Air untuk Hot Reload) ---
+# --- STAGE 2: DEVELOPMENT ---
 FROM base AS dev
 RUN go install github.com/air-verse/air@v1.64.5
 COPY . .
@@ -14,13 +14,13 @@ RUN go build -o migrate ./cmd/migrate
 RUN mkdir -p /app/tmp && chmod -R 777 /app/tmp
 CMD ["air", "-c", ".air.toml"]
 
-# --- STAGE 3: BUILDER (Compiling Production) ---
+# --- STAGE 3: BUILDER ---
 FROM base AS builder
 COPY . .
 RUN go build -o main .
 RUN go build -o migrate ./cmd/migrate
 
-# --- STAGE 4: RUNNER (Final Production Image) ---
+# --- STAGE 4: RUNNER ---
 FROM alpine:edge AS runner
 ENV GIN_MODE=release
 WORKDIR /app

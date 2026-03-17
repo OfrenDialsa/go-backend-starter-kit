@@ -4,13 +4,13 @@ services:
     container_name: starter-api
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: ./docker/Dockerfile
       target: dev
     volumes:
       - .:/app
     image: starter-api
     ports:
-      - "${API_PORT:-8000}:${API_INTERNAL_PORT:-8000}"
+      - "${API_PORT:-8080}:${API_INTERNAL_PORT:-8080}"
     env_file:
       - env/.env
     depends_on:
