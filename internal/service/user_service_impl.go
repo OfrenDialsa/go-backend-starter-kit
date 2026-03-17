@@ -41,6 +41,10 @@ func NewUserService(env *config.EnvironmentVariable, txStarter TxStarter, userRe
 func (u *userServiceImpl) GetMe(ctx context.Context, userId string) (*dto.GetMeResponse, error) {
 	user, err := u.userRepo.GetByUserId(ctx, userId)
 	if err != nil {
+		return nil, err
+	}
+
+	if user == nil {
 		return nil, lib.ErrorMessageUserNotFound
 	}
 

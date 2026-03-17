@@ -7,6 +7,13 @@ DB_USER = postgres
 DB_NAME = go-gin-starter
 API_CONTAINER=api
 
+MOCKERY := ~/go/bin/mockery
+REPO_DIR := internal/repository
+SERVICE_DIR := internal/service
+STORAGE_DIR := external/storage
+MOCK_DIR := tests/mocks
+MOCK_PKG := mocks
+
 FEATURE_NAME=$(name)
 
 create-repo:
@@ -84,8 +91,34 @@ migrate-status:
 db-shell:
 	docker exec -it $(DB_CONTAINER) psql -U $(DB_USER) -d $(DB_NAME)
 
-test:
-	go test ./... -v
 
 clean:
 	go clean
+
+mocks:
+	@echo "Generating repository mocks..."
+	@mkdir -p $(MOCK_DIR)
+	$(MOCKERY) \
+		--all \
+		--dir $(REPO_DIR) \
+		--output $(MOCK_DIR) \
+		--outpkg $(MOCK_PKG) \
+		--case snake \
+		--disable-version-string \
+		--quiet
+
+	@echo "Generating specific mocks..."
+	$(MOCKERY) --name TxStarter --dir $(SERVICE_DIR) --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string --quiet
+	$(MOCKERY) --name StorageService --dir $(STORAGE_DIR) --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string --quiet
+	
+	@echo "Generating external mocks (pgx.Tx)..."
+	$(MOCKERY) --name Tx --srcpkg github.com/jackc/pgx/v5 --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string --quiet
+	
+	@echo "Generating mailer mock..."
+	$(MOCKERY) --name Sender --dir internal/mailer --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --structname MockMailer --case snake --disable-version-string --quiet
+	
+	@echo "✅ Done generating mocks"
+
+test:
+	go test -v -coverprofile=coverage.out -covermode=atomic -coverpkg=./internal/service/... ./tests/...
+	@go tool cover -func=coverage.out | tail -1
