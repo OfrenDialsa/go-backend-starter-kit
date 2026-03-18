@@ -5,7 +5,6 @@ import (
 	"github/OfrenDialsa/go-gin-starter/config"
 	"github/OfrenDialsa/go-gin-starter/internal/dto"
 
-	"github.com/nsqio/go-nsq"
 	"github.com/rs/zerolog/log"
 )
 
@@ -16,12 +15,12 @@ type ProducerTopic struct {
 type ProducerServiceImpl struct {
 	Env         *config.EnvironmentVariable
 	Topic       ProducerTopic
-	NsqProducer *nsq.Producer
+	NsqProducer NsqClient
 }
 
 func NewProducerServiceImpl(
 	env *config.EnvironmentVariable,
-	nsqProducer *nsq.Producer,
+	nsqProducer NsqClient,
 ) ProducerService {
 	topics := ProducerTopic{
 		SendEmailRequest: env.MessageQueue.NSQ.Producer.Topic.SendEmail.TopicName,

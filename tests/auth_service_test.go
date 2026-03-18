@@ -26,7 +26,6 @@ type authTestDeps struct {
 	txStarter   *mocks.TxStarter
 	mockTx      *mocks.Tx
 	producerSvc *mocks.ProducerService
-	mailer      *mocks.Mailer
 	svc         service.AuthService
 }
 
@@ -35,11 +34,13 @@ func testEnv() *config.EnvironmentVariable {
 	env.JWT.SecretKey.Access = "test-access-secret"
 	env.JWT.SecretKey.Refresh = "test-refresh-secret"
 	env.JWT.Token.AccessLifeTime = 15
+	env.MessageQueue.NSQ.Producer.Topic.SendEmail.TopicName = "test-email-topic"
 	return env
 }
 
 func hashPassword(t *testing.T) string {
 	t.Helper()
+
 	hash, err := lib.Hash("password123")
 	if err != nil {
 		t.Fatal(err)
@@ -54,7 +55,6 @@ func setupAuthService(t *testing.T) *authTestDeps {
 		sessionRepo: mocks.NewSessionRepository(t),
 		txStarter:   mocks.NewTxStarter(t),
 		mockTx:      mocks.NewTx(t),
-		mailer:      mocks.NewMailer(t),
 		producerSvc: mocks.NewProducerService(t),
 	}
 
@@ -64,7 +64,6 @@ func setupAuthService(t *testing.T) *authTestDeps {
 		d.userRepo,
 		d.sessionRepo,
 		d.producerSvc,
-		d.mailer,
 	)
 	return d
 }
@@ -91,7 +90,9 @@ func TestRegister_Success(t *testing.T) {
 
 	d.sessionRepo.On("Create", ctx, d.mockTx, mock.AnythingOfType("*model.UserSession")).Return(nil)
 
-	d.mailer.On("Send", mock.AnythingOfType("dto.MailgunRequest")).Return("msg-id", nil)
+	d.producerSvc.On("SendEmailRequest", mock.MatchedBy(func(payload dto.EmailTaskPayload) bool {
+		return payload.Email == req.Email && payload.Type == "verify_email"
+	})).Return(nil)
 
 	resp, err := d.svc.Register(ctx, "UA", "IP", req)
 
@@ -102,8 +103,9 @@ func TestRegister_Success(t *testing.T) {
 
 	d.userRepo.AssertExpectations(t)
 	d.sessionRepo.AssertExpectations(t)
-	d.mailer.AssertExpectations(t)
+	d.producerSvc.AssertExpectations(t)
 }
+
 func TestRegister_EmailOrUsernameAlreadyExists(t *testing.T) {
 	d := setupAuthService(t)
 	ctx := context.Background()
@@ -149,29 +151,72 @@ func TestRegister_DatabaseErrorOnCheck(t *testing.T) {
 	assert.Contains(t, err.Error(), "database connection error")
 }
 
+func TestRegister_MailerError(t *testing.T) {
+	d := setupAuthService(t)
+	ctx := context.Background()
+
+	req := &dto.RegisterRequest{
+		Email:    "test@example.com",
+		Username: "testuser",
+		Password: "password123",
+		Name:     "Test User",
+	}
+
+	d.userRepo.On("GetByEmailOrUsername", ctx, req.Email, req.Username).Return(nil, nil)
+
+	d.txStarter.On("Begin", ctx).Return(d.mockTx, nil)
+	d.userRepo.On("Create", ctx, d.mockTx, mock.AnythingOfType("*model.User")).Return(nil)
+	d.sessionRepo.On("Create", ctx, d.mockTx, mock.AnythingOfType("*model.UserSession")).Return(nil)
+
+	d.producerSvc.On("SendEmailRequest", mock.Anything).
+		Return(errors.New("failed to publish email to NSQ"))
+
+	d.mockTx.On("Rollback", ctx).Return(nil)
+	d.mockTx.AssertNotCalled(t, "Commit", ctx)
+
+	resp, err := d.svc.Register(ctx, "UA", "IP", req)
+
+	assert.Error(t, err)
+	assert.Nil(t, resp)
+	assert.Contains(t, err.Error(), "failed to publish email to NSQ")
+
+	d.producerSvc.AssertExpectations(t)
+	d.mockTx.AssertExpectations(t)
+}
+
 // ===================== VerifyEmail Tests =====================
 func TestVerifyEmail_Success(t *testing.T) {
 	d := setupAuthService(t)
 	ctx := context.Background()
 	token := "valid-token-123"
 	hashedToken := utils.HashTokenSHA256(token)
+	userId := "user-123"
 
 	session := &model.UserSession{
 		SessionId: "session-abc",
-		UserId:    "user-123",
+		UserId:    userId,
 		ExpiresAt: time.Now().Add(1 * time.Hour),
 		RevokedAt: nil,
 	}
 
+	user := &model.User{UserId: userId, Email: "test@example.com", Name: "Test User"}
+
 	d.sessionRepo.On("GetByToken", ctx, hashedToken, "verify_email").Return(session, nil)
-	d.userRepo.On("UpdateVerifiedEmail", ctx, nil, session.UserId).Return(nil)
+
+	d.userRepo.On("GetByUserId", ctx, userId).Return(user, nil)
+	d.userRepo.On("UpdateVerifiedEmail", ctx, nil, userId).Return(nil)
 	d.sessionRepo.On("DeleteSession", ctx, session.SessionId).Return(nil)
+
+	d.producerSvc.On("SendEmailRequest", mock.MatchedBy(func(p dto.EmailTaskPayload) bool {
+		return p.Type == "verify_email_success" && p.Email == user.Email
+	})).Return(nil)
 
 	err := d.svc.VerifyEmail(ctx, token)
 
 	assert.NoError(t, err)
 	d.sessionRepo.AssertExpectations(t)
 	d.userRepo.AssertExpectations(t)
+	d.producerSvc.AssertExpectations(t)
 }
 
 func TestVerifyEmail_InvalidOrExpired(t *testing.T) {
@@ -198,27 +243,85 @@ func TestVerifyEmail_InvalidOrExpired(t *testing.T) {
 	errMissing := d.svc.VerifyEmail(ctx, tokenMissing)
 	assert.ErrorIs(t, errMissing, lib.ErrInvalidToken)
 }
-
 func TestVerifyEmail_UpdateFailed(t *testing.T) {
 	d := setupAuthService(t)
 	ctx := context.Background()
 	token := "valid-token"
 	hashedToken := utils.HashTokenSHA256(token)
+	userId := "user-123"
 
 	session := &model.UserSession{
-		UserId:    "user-123",
+		UserId:    userId,
 		ExpiresAt: time.Now().Add(1 * time.Hour),
 	}
+	user := &model.User{UserId: userId}
 
 	d.sessionRepo.On("GetByToken", ctx, hashedToken, "verify_email").Return(session, nil)
 
-	d.userRepo.On("UpdateVerifiedEmail", ctx, nil, session.UserId).
+	d.userRepo.On("GetByUserId", ctx, userId).Return(user, nil)
+
+	d.userRepo.On("UpdateVerifiedEmail", ctx, nil, userId).
 		Return(errors.New("db error"))
 
 	err := d.svc.VerifyEmail(ctx, token)
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to update verified email")
+}
+
+func TestVerifyEmail_UserNotFound(t *testing.T) {
+	d := setupAuthService(t)
+	ctx := context.Background()
+	token := "valid-token"
+	hashedToken := utils.HashTokenSHA256(token)
+
+	session := &model.UserSession{UserId: "non-existent-user", ExpiresAt: time.Now().Add(1 * time.Hour)}
+
+	d.sessionRepo.On("GetByToken", ctx, hashedToken, "verify_email").Return(session, nil)
+
+	d.userRepo.On("GetByUserId", ctx, session.UserId).Return(nil, errors.New("user not found"))
+
+	err := d.svc.VerifyEmail(ctx, token)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to retrieve user")
+}
+
+func TestVerifyEmail_MailerError(t *testing.T) {
+	d := setupAuthService(t)
+	ctx := context.Background()
+	token := "valid-token"
+	hashedToken := utils.HashTokenSHA256(token)
+	userId := "user-123"
+
+	session := &model.UserSession{
+		SessionId: "session-abc",
+		UserId:    userId,
+		ExpiresAt: time.Now().Add(1 * time.Hour),
+		RevokedAt: nil,
+	}
+
+	user := &model.User{
+		UserId: userId,
+		Email:  "test@example.com",
+		Name:   "Test User",
+	}
+
+	d.sessionRepo.On("GetByToken", ctx, hashedToken, "verify_email").Return(session, nil)
+	d.userRepo.On("GetByUserId", ctx, userId).Return(user, nil)
+	d.userRepo.On("UpdateVerifiedEmail", ctx, nil, userId).Return(nil)
+	d.sessionRepo.On("DeleteSession", ctx, session.SessionId).Return(nil)
+	d.producerSvc.On("SendEmailRequest", mock.Anything).
+		Return(errors.New("nsq publish error"))
+
+	err := d.svc.VerifyEmail(ctx, token)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to queue email")
+
+	d.sessionRepo.AssertExpectations(t)
+	d.userRepo.AssertExpectations(t)
+	d.producerSvc.AssertExpectations(t)
 }
 
 // ===================== Login Tests =====================
@@ -368,7 +471,9 @@ func TestForgotPassword_Success(t *testing.T) {
 	d.sessionRepo.On("Create", ctx, nil, mock.MatchedBy(func(s *model.UserSession) bool {
 		return s.UserId == user.UserId && s.Type == "reset_password"
 	})).Return(nil)
-	d.mailer.On("Send", mock.AnythingOfType("dto.MailgunRequest")).Return("msg-id", nil)
+	d.producerSvc.On("SendEmailRequest", mock.MatchedBy(func(payload dto.EmailTaskPayload) bool {
+		return payload.Email == user.Email && payload.Type == "forgot_password"
+	})).Return(nil)
 
 	err := d.svc.ForgotPassword(ctx, email, "Mozilla", "127.0.0.1")
 
@@ -398,12 +503,18 @@ func TestForgotPassword_MailerError(t *testing.T) {
 		return s.Type == "reset_password"
 	})).Return(nil)
 
-	d.mailer.On("Send", mock.Anything).Return("", errors.New("mail server connection timeout"))
+	d.producerSvc.On("SendEmailRequest", mock.MatchedBy(func(payload dto.EmailTaskPayload) bool {
+		return payload.Email == email && payload.Type == "forgot_password"
+	})).Return(errors.New("nsqd connection refused"))
 
 	err := d.svc.ForgotPassword(ctx, email, "UA", "127.0.0.1")
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to send email")
+	assert.Contains(t, err.Error(), "failed to queue email")
+
+	d.userRepo.AssertExpectations(t)
+	d.sessionRepo.AssertExpectations(t)
+	d.producerSvc.AssertExpectations(t)
 }
 
 func TestForgotPassword_DatabaseError(t *testing.T) {
@@ -551,22 +662,31 @@ func TestRefreshToken_InvalidFormat(t *testing.T) {
 func TestResetPassword_Success(t *testing.T) {
 	d := setupAuthService(t)
 	ctx := context.Background()
-	token := "raw-reset-token"
 
+	token := "valid-token"
+	newPassword := "NewPassword123!"
+	userId := "user-1"
+	hashedToken := hashToken(token)
+	user := &model.User{UserId: userId, Name: "Ofren", Email: "ofren@example.com"}
 	session := &model.UserSession{
-		SessionId: "sess-reset",
-		UserId:    "user-1",
+		SessionId: "sess-id",
+		UserId:    userId,
 		ExpiresAt: time.Now().Add(time.Hour),
 	}
 
-	d.sessionRepo.On("GetByToken", ctx, mock.Anything, "reset_password").Return(session, nil)
-	d.userRepo.On("UpdatePassword", ctx, "user-1", mock.Anything).Return(nil)
-	d.sessionRepo.On("RevokeAllUserSessions", ctx, nil, "user-1").Return(nil)
-	d.sessionRepo.On("DeleteSession", ctx, "sess-reset").Return(nil)
+	d.userRepo.On("GetByUserId", ctx, userId).Return(user, nil)
+	d.sessionRepo.On("GetByToken", ctx, hashedToken, "reset_password").Return(session, nil)
+	d.userRepo.On("UpdatePassword", ctx, userId, mock.AnythingOfType("string")).Return(nil)
+	d.sessionRepo.On("RevokeAllUserSessions", ctx, mock.Anything, userId).Return(nil)
+	d.sessionRepo.On("DeleteSession", ctx, mock.AnythingOfType("string")).Return(nil)
 
-	err := d.svc.ResetPassword(ctx, token, "newpassword123")
+	d.producerSvc.On("SendEmailRequest", mock.Anything).Return(nil).Maybe()
+	err := d.svc.ResetPassword(ctx, token, newPassword)
 
 	assert.NoError(t, err)
+
+	d.userRepo.AssertExpectations(t)
+	d.sessionRepo.AssertExpectations(t)
 }
 
 func TestResetPassword_ExpiredToken(t *testing.T) {
@@ -605,6 +725,7 @@ func TestResetPassword_UpdatePasswordError(t *testing.T) {
 	rawToken := "valid-token"
 	hashedToken := hashToken(rawToken)
 	userId := "user-1"
+	user := &model.User{UserId: userId, Name: "Ofren"}
 
 	session := &model.UserSession{
 		SessionId: "sess-id",
@@ -612,6 +733,7 @@ func TestResetPassword_UpdatePasswordError(t *testing.T) {
 		ExpiresAt: time.Now().Add(time.Hour),
 	}
 
+	d.userRepo.On("GetByUserId", ctx, userId).Return(user, nil)
 	d.sessionRepo.On("GetByToken", ctx, hashedToken, "reset_password").Return(session, nil)
 	d.userRepo.On("UpdatePassword", ctx, userId, mock.Anything).Return(errors.New("db error"))
 
@@ -626,6 +748,7 @@ func TestResetPassword_RevokeSessionsFailure(t *testing.T) {
 	rawToken := "valid-token"
 	hashedToken := hashToken(rawToken)
 	userId := "user-1"
+	user := &model.User{UserId: userId, Name: "Ofren"}
 
 	session := &model.UserSession{
 		SessionId: "sess-id",
@@ -634,12 +757,16 @@ func TestResetPassword_RevokeSessionsFailure(t *testing.T) {
 	}
 
 	d.sessionRepo.On("GetByToken", ctx, hashedToken, "reset_password").Return(session, nil)
-	d.userRepo.On("UpdatePassword", ctx, userId, mock.Anything).Return(nil)
+
+	d.userRepo.On("GetByUserId", ctx, userId).Return(user, nil)
+	d.userRepo.On("UpdatePassword", ctx, userId, mock.AnythingOfType("string")).Return(nil)
 	d.sessionRepo.On("RevokeAllUserSessions", ctx, nil, userId).Return(errors.New("failed to revoke"))
 
 	err := d.svc.ResetPassword(ctx, rawToken, "newpassword123")
 
 	assert.Error(t, err)
+	d.userRepo.AssertExpectations(t)
+	d.sessionRepo.AssertExpectations(t)
 }
 
 func TestResetPassword_DeleteTokenFailure(t *testing.T) {
@@ -648,6 +775,7 @@ func TestResetPassword_DeleteTokenFailure(t *testing.T) {
 	rawToken := "valid-token"
 	hashedToken := hashToken(rawToken)
 	userId := "user-1"
+	user := &model.User{UserId: userId, Name: "Ofren"}
 
 	session := &model.UserSession{
 		SessionId: "sess-id",
@@ -656,6 +784,7 @@ func TestResetPassword_DeleteTokenFailure(t *testing.T) {
 	}
 
 	d.sessionRepo.On("GetByToken", ctx, hashedToken, "reset_password").Return(session, nil)
+	d.userRepo.On("GetByUserId", ctx, userId).Return(user, nil)
 	d.userRepo.On("UpdatePassword", ctx, userId, mock.Anything).Return(nil)
 	d.sessionRepo.On("RevokeAllUserSessions", ctx, nil, userId).Return(nil)
 	d.sessionRepo.On("DeleteSession", ctx, "sess-id").Return(errors.New("clean up error"))
@@ -663,6 +792,47 @@ func TestResetPassword_DeleteTokenFailure(t *testing.T) {
 	err := d.svc.ResetPassword(ctx, rawToken, "newpassword123")
 
 	assert.Error(t, err)
+}
+
+func TestResetPassword_MailerError(t *testing.T) {
+	d := setupAuthService(t)
+	ctx := context.Background()
+
+	token := "valid-token"
+	newPassword := "NewPassword123!"
+	userId := "user-1"
+	hashedToken := hashToken(token)
+
+	user := &model.User{
+		UserId: userId,
+		Name:   "Ofren",
+		Email:  "ofren@example.com",
+	}
+
+	session := &model.UserSession{
+		SessionId: "sess-id",
+		UserId:    userId,
+		ExpiresAt: time.Now().Add(time.Hour),
+	}
+
+	d.sessionRepo.On("GetByToken", ctx, hashedToken, "reset_password").Return(session, nil)
+	d.userRepo.On("GetByUserId", ctx, userId).Return(user, nil)
+
+	d.userRepo.On("UpdatePassword", ctx, userId, mock.AnythingOfType("string")).Return(nil)
+	d.sessionRepo.On("RevokeAllUserSessions", ctx, mock.Anything, userId).Return(nil)
+	d.sessionRepo.On("DeleteSession", ctx, session.SessionId).Return(nil)
+	d.producerSvc.On("SendEmailRequest", mock.MatchedBy(func(p dto.EmailTaskPayload) bool {
+		return p.Type == "password_reset_success" && p.Email == user.Email
+	})).Return(errors.New("nsq publisher timeout"))
+
+	err := d.svc.ResetPassword(ctx, token, newPassword)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to queue email")
+
+	d.userRepo.AssertExpectations(t)
+	d.sessionRepo.AssertExpectations(t)
+	d.producerSvc.AssertExpectations(t)
 }
 
 // ===================== Check Existence Tests =====================

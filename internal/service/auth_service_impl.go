@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github/OfrenDialsa/go-gin-starter/config"
 	"github/OfrenDialsa/go-gin-starter/internal/dto"
-	"github/OfrenDialsa/go-gin-starter/internal/mailer"
 	"github/OfrenDialsa/go-gin-starter/internal/model"
 	"github/OfrenDialsa/go-gin-starter/internal/repository"
 	"github/OfrenDialsa/go-gin-starter/lib"
@@ -21,7 +20,6 @@ type authServiceImpl struct {
 	userRepo    repository.UserRepository
 	sessionRepo repository.SessionRepository
 	producerSvc ProducerService
-	mailer      mailer.Sender
 }
 
 func NewAuthService(
@@ -30,7 +28,6 @@ func NewAuthService(
 	userRepo repository.UserRepository,
 	sessionRepo repository.SessionRepository,
 	producerSvc ProducerService,
-	Mailer mailer.Sender,
 ) AuthService {
 	return &authServiceImpl{
 		env:         env,
@@ -38,7 +35,6 @@ func NewAuthService(
 		userRepo:    userRepo,
 		sessionRepo: sessionRepo,
 		producerSvc: producerSvc,
-		mailer:      Mailer,
 	}
 }
 
@@ -114,10 +110,6 @@ func (s *authServiceImpl) Register(ctx context.Context, userAgent, ipAddress str
 		return nil, fmt.Errorf("failed to create reset password session: %w", err)
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
 	verifLink := fmt.Sprintf("%s?token=%s", s.env.External.VerifyEmailURL, verifToken)
 
 	mailPayload := dto.EmailTaskPayload{
@@ -130,6 +122,11 @@ func (s *authServiceImpl) Register(ctx context.Context, userAgent, ipAddress str
 	err = s.producerSvc.SendEmailRequest(mailPayload)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to publish email to NSQ")
+		return nil, fmt.Errorf("failed to queue email: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	return &dto.RegisterResponse{
@@ -182,6 +179,7 @@ func (s *authServiceImpl) VerifyEmail(ctx context.Context, token string) error {
 	err = s.producerSvc.SendEmailRequest(mailPayload)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to publish email to NSQ")
+		return fmt.Errorf("failed to queue email: %w", err)
 	}
 
 	return nil
@@ -319,6 +317,7 @@ func (s *authServiceImpl) ForgotPassword(ctx context.Context, email, userAgent, 
 	err = s.producerSvc.SendEmailRequest(mailPayload)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to publish email to NSQ")
+		return fmt.Errorf("failed to queue email: %w", err)
 	}
 
 	return nil
@@ -445,7 +444,7 @@ func (s *authServiceImpl) ResetPassword(ctx context.Context, token string, newPa
 	}
 
 	mailPayload := dto.EmailTaskPayload{
-		Type:  "password_reset_succes",
+		Type:  "password_reset_success",
 		Email: user.Email,
 		Name:  user.Name,
 	}
@@ -453,6 +452,7 @@ func (s *authServiceImpl) ResetPassword(ctx context.Context, token string, newPa
 	err = s.producerSvc.SendEmailRequest(mailPayload)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to publish email to NSQ")
+		return fmt.Errorf("failed to queue email: %w", err)
 	}
 
 	log.Info().

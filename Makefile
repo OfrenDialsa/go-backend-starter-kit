@@ -109,6 +109,7 @@ mocks:
 
 	@echo "Generating specific mocks..."
 	$(MOCKERY) --name TxStarter --dir $(SERVICE_DIR) --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string --quiet
+	$(MOCKERY) --name NsqClient --dir $(SERVICE_DIR) --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string --quiet
 	$(MOCKERY) --name StorageService --dir $(STORAGE_DIR) --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string --quiet
 	$(MOCKERY) --name ProducerService --dir $(SERVICE_DIR) --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string --quiet
 	
