@@ -1,6 +1,6 @@
 package dto
 
-type MailgunRequest struct {
+type MailerRequest struct {
 	To          []string `json:"to"`
 	Subject     string   `json:"subject"`
 	Body        string   `json:"body"`

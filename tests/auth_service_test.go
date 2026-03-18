@@ -20,7 +20,15 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
-// ===================== Helpers =====================
+type authTestDeps struct {
+	userRepo    *mocks.UserRepository
+	sessionRepo *mocks.SessionRepository
+	txStarter   *mocks.TxStarter
+	mockTx      *mocks.Tx
+	producerSvc *mocks.ProducerService
+	mailer      *mocks.Mailer
+	svc         service.AuthService
+}
 
 func testEnv() *config.EnvironmentVariable {
 	env := &config.EnvironmentVariable{}
@@ -39,15 +47,6 @@ func hashPassword(t *testing.T) string {
 	return hash
 }
 
-type authTestDeps struct {
-	userRepo    *mocks.UserRepository
-	sessionRepo *mocks.SessionRepository
-	txStarter   *mocks.TxStarter
-	mockTx      *mocks.Tx
-	mailer      *mocks.MockMailer
-	svc         service.AuthService
-}
-
 func setupAuthService(t *testing.T) *authTestDeps {
 	t.Helper()
 	d := &authTestDeps{
@@ -55,7 +54,8 @@ func setupAuthService(t *testing.T) *authTestDeps {
 		sessionRepo: mocks.NewSessionRepository(t),
 		txStarter:   mocks.NewTxStarter(t),
 		mockTx:      mocks.NewTx(t),
-		mailer:      mocks.NewMockMailer(t),
+		mailer:      mocks.NewMailer(t),
+		producerSvc: mocks.NewProducerService(t),
 	}
 
 	d.svc = service.NewAuthService(
@@ -63,6 +63,7 @@ func setupAuthService(t *testing.T) *authTestDeps {
 		d.txStarter,
 		d.userRepo,
 		d.sessionRepo,
+		d.producerSvc,
 		d.mailer,
 	)
 	return d
