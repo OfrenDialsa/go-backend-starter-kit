@@ -1,0 +1,42 @@
+services:
+  nsqlookupd:
+    image: nsqio/nsq:latest
+    container_name: nsqlookupd
+    command: /nsqlookupd
+    ports:
+      - "4160:4160"
+      - "4161:4161"
+    networks:
+      - go-gin-starter_default
+
+  nsqd:
+    image: nsqio/nsq:latest
+    container_name: nsqd
+    command: /nsqd --lookupd-tcp-address=nsqlookupd:4160 --broadcast-address=nsqd --data-path=/data
+    depends_on:
+      - nsqlookupd
+    volumes:
+      - nsq_data:/data
+    ports:
+      - "4150:4150"
+      - "4151:4151"
+    networks:
+      - go-gin-starter_default
+
+  nsqadmin:
+    image: nsqio/nsq:latest
+    container_name: nsqadmin
+    command: /nsqadmin --lookupd-http-address=nsqlookupd:4161
+    depends_on:
+      - nsqlookupd
+    ports:
+      - "4171:4171"
+    networks:
+      - go-gin-starter_default
+
+networks:
+  go-gin-starter_default:
+    external: true
+
+volumes:
+  nsq_data:

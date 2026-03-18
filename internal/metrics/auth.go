@@ -1,6 +1,10 @@
 package metrics
 
-import "github.com/prometheus/client_golang/prometheus"
+import (
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+)
 
 var AuthRequests = prometheus.NewCounterVec(
 	prometheus.CounterOpts{
@@ -18,3 +22,8 @@ var AuthDuration = prometheus.NewHistogramVec(
 	},
 	[]string{"operation"},
 )
+
+func TrackAuth(operation string, status string, duration time.Duration) {
+	AuthRequests.WithLabelValues(operation, status).Inc()
+	AuthDuration.WithLabelValues(operation).Observe(duration.Seconds())
+}
