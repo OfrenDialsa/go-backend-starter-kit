@@ -15,10 +15,8 @@ const EnvFilename = ".env"
 
 func LoadEnv() (env *EnvironmentVariable, err error) {
 	envFile := fmt.Sprintf("%s/%s", EnvFolder, EnvFilename)
-	// envSecretFile := fmt.Sprintf("%s/%s", EnvFolder, EnvSecretFilename)
 
 	v := viper.New()
-
 	if _, err := os.Stat(envFile); err == nil {
 		v.SetConfigFile(envFile)
 		if err := v.ReadInConfig(); err != nil {
@@ -36,7 +34,6 @@ func LoadEnv() (env *EnvironmentVariable, err error) {
 		log.Error().Err(err).Msg("viper error unmarshal config")
 	}
 
-	// Validate Required Value
 	err = env.validateRequiredValue()
 	if err != nil {
 		log.Error().Err(err).Msg("Some required configuration are missing")
@@ -87,7 +84,30 @@ type EnvironmentVariable struct {
 	External struct {
 		ResetPasswordURL string `mapstructure:"RESET_PASSWORD_URL"`
 		VerifyEmailURL   string `mapstructure:"VERIFY_EMAIL_URL"`
+		FrontendURL      string `mapstructure:"FRONTEND_URL"`
 	} `mapstructure:"EXTERNAL"`
+	MessageQueue struct {
+		NSQ struct {
+			Host     string `mapstructure:"HOST"`
+			Producer struct {
+				Topic struct {
+					SendEmail struct {
+						TopicName string `mapstructure:"TOPIC_NAME"`
+					} `mapstructure:"SEND_EMAIL"`
+				} `mapstructure:"TOPIC"`
+			} `mapstructure:"PRODUCER"`
+			Consumer struct {
+				Email struct {
+					ChannelName string `mapstructure:"CHANNEL_NAME"`
+					Topic       struct {
+						SendEmail struct {
+							TopicName string `mapstructure:"TOPIC_NAME"`
+						} `mapstructure:"SEND_EMAIL"`
+					} `mapstructure:"TOPIC"`
+				} `mapstructure:"EMAIL"`
+			} `mapstructure:"CONSUMER"`
+		} `mapstructure:"NSQ"`
+	} `mapstructure:"MESSAGE_QUEUE"`
 	Mail struct {
 		From     string `mapstructure:"FROM"`
 		FromName string `mapstructure:"FROM_NAME"`

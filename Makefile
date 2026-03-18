@@ -2,6 +2,7 @@
 
 DC = docker-compose -f docker-compose.yml
 DC_MONITORING = docker-compose -f docker/monitoring/docker-compose.yml
+DC_NSQ = docker-compose -f docker/nsq/docker-compose.yml
 DB_CONTAINER = postgres-starter
 DB_USER = postgres
 DB_NAME = go-gin-starter
@@ -15,26 +16,6 @@ MOCK_DIR := tests/mocks
 MOCK_PKG := mocks
 
 FEATURE_NAME=$(name)
-
-create-repo:
-	@chmod +x script/create_repository.sh
-	@./script/create_repository.sh $(FEATURE_NAME)
-
-create-service:
-	@chmod +x script/create_service.sh
-	@./script/create_service.sh $(FEATURE_NAME)
-
-create-handler:
-	@chmod +x script/create_handler.sh
-	@./script/create_handler.sh $(FEATURE_NAME)
-
-create-feature:
-	@$(MAKE) create-repo name=$(FEATURE_NAME)
-	@$(MAKE) create-service name=$(FEATURE_NAME)
-	@$(MAKE) create-handler name=$(FEATURE_NAME)
-
-swag-init:
-	swag init -g main.go --output docs
 
 up:
 	$(DC) up -d
@@ -60,6 +41,18 @@ logs-api:
 ps:
 	$(DC) ps
 
+nsq-up:
+	$(DC_NSQ) up -d
+
+nsq-down:
+	$(DC_NSQ) down
+
+nsq-logs:
+	$(DC_NSQ) logs -f
+
+nsq-restart:
+	$(DC_NSQ) restart
+
 monitor-up:
 	$(DC_MONITORING) up -d
 
@@ -71,6 +64,16 @@ monitor-logs:
 
 monitor-restart:
 	$(DC_MONITORING) restart
+
+dev-up: nsq-up up
+
+dev-down: down nsq-down
+
+dev-rebuild: nsq-down down nsq-up up-build
+
+dev-logs:
+	@echo "Menampilkan logs dari NSQ dan API..."
+	$(DC_NSQ) logs -f & $(DC) logs -f
 
 migrate-create:
 	@if [ -z "$(name)" ]; then \
@@ -91,7 +94,6 @@ migrate-status:
 db-shell:
 	docker exec -it $(DB_CONTAINER) psql -U $(DB_USER) -d $(DB_NAME)
 
-
 clean:
 	go clean
 
@@ -109,16 +111,38 @@ mocks:
 
 	@echo "Generating specific mocks..."
 	$(MOCKERY) --name TxStarter --dir $(SERVICE_DIR) --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string --quiet
+	$(MOCKERY) --name NsqClient --dir $(SERVICE_DIR) --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string --quiet
 	$(MOCKERY) --name StorageService --dir $(STORAGE_DIR) --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string --quiet
+	$(MOCKERY) --name ProducerService --dir $(SERVICE_DIR) --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string --quiet
 	
 	@echo "Generating external mocks (pgx.Tx)..."
 	$(MOCKERY) --name Tx --srcpkg github.com/jackc/pgx/v5 --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string --quiet
 	
 	@echo "Generating mailer mock..."
-	$(MOCKERY) --name Sender --dir internal/mailer --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --structname MockMailer --case snake --disable-version-string --quiet
+	$(MOCKERY) --name Sender --dir internal/mailer --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --structname Mailer --case snake --disable-version-string --quiet
 	
 	@echo "✅ Done generating mocks"
 
 test:
 	go test -v -coverprofile=coverage.out -covermode=atomic -coverpkg=./internal/service/... ./tests/...
 	@go tool cover -func=coverage.out | tail -1
+
+create-repo:
+	@chmod +x script/create_repository.sh
+	@./script/create_repository.sh $(FEATURE_NAME)
+
+create-service:
+	@chmod +x script/create_service.sh
+	@./script/create_service.sh $(FEATURE_NAME)
+
+create-handler:
+	@chmod +x script/create_handler.sh
+	@./script/create_handler.sh $(FEATURE_NAME)
+
+create-feature:
+	@$(MAKE) create-repo name=$(FEATURE_NAME)
+	@$(MAKE) create-service name=$(FEATURE_NAME)
+	@$(MAKE) create-handler name=$(FEATURE_NAME)
+
+swag-init:
+	swag init -g main.go --output docs

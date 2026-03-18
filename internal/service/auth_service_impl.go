@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github/OfrenDialsa/go-gin-starter/config"
 	"github/OfrenDialsa/go-gin-starter/internal/dto"
-	"github/OfrenDialsa/go-gin-starter/internal/mailer"
 	"github/OfrenDialsa/go-gin-starter/internal/model"
 	"github/OfrenDialsa/go-gin-starter/internal/repository"
 	"github/OfrenDialsa/go-gin-starter/lib"
@@ -20,7 +19,7 @@ type authServiceImpl struct {
 	txStarter   TxStarter
 	userRepo    repository.UserRepository
 	sessionRepo repository.SessionRepository
-	Mailer      mailer.Sender
+	producerSvc ProducerService
 }
 
 func NewAuthService(
@@ -28,14 +27,14 @@ func NewAuthService(
 	txStarter TxStarter,
 	userRepo repository.UserRepository,
 	sessionRepo repository.SessionRepository,
-	Mailer mailer.Sender,
+	producerSvc ProducerService,
 ) AuthService {
 	return &authServiceImpl{
 		env:         env,
 		txStarter:   txStarter,
 		userRepo:    userRepo,
 		sessionRepo: sessionRepo,
-		Mailer:      Mailer,
+		producerSvc: producerSvc,
 	}
 }
 
@@ -111,27 +110,23 @@ func (s *authServiceImpl) Register(ctx context.Context, userAgent, ipAddress str
 		return nil, fmt.Errorf("failed to create reset password session: %w", err)
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
 	verifLink := fmt.Sprintf("%s?token=%s", s.env.External.VerifyEmailURL, verifToken)
 
-	emailBody, err := lib.BuildEmailBody(user.Name, verifLink)
-	if err != nil {
-		return nil, err
+	mailPayload := dto.EmailTaskPayload{
+		Type:  "verify_email",
+		Email: user.Email,
+		Name:  user.Name,
+		Link:  verifLink,
 	}
 
-	mailData := dto.MailgunRequest{
-		To:          []string{user.Email},
-		Subject:     lib.DefaultEmailSubject,
-		Body:        emailBody,
-		Attachments: []string{},
+	err = s.producerSvc.SendEmailRequest(mailPayload)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to publish email to NSQ")
+		return nil, fmt.Errorf("failed to queue email: %w", err)
 	}
 
-	_, err = s.Mailer.Send(mailData)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send email: %w", err)
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	return &dto.RegisterResponse{
@@ -157,6 +152,10 @@ func (s *authServiceImpl) VerifyEmail(ctx context.Context, token string) error {
 	if session == nil || session.RevokedAt != nil || session.ExpiresAt.Before(time.Now()) {
 		return lib.ErrInvalidToken
 	}
+	user, err := s.userRepo.GetByUserId(ctx, session.UserId)
+	if err != nil {
+		return fmt.Errorf("failed to retrieve user: %w", err)
+	}
 
 	err = s.userRepo.UpdateVerifiedEmail(ctx, nil, session.UserId)
 	if err != nil {
@@ -166,6 +165,21 @@ func (s *authServiceImpl) VerifyEmail(ctx context.Context, token string) error {
 	err = s.sessionRepo.DeleteSession(ctx, session.SessionId)
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to cleanup session")
+	}
+
+	loginLink := s.env.External.FrontendURL + "/login"
+
+	mailPayload := dto.EmailTaskPayload{
+		Type:  "verify_email_success",
+		Email: user.Email,
+		Name:  user.Name,
+		Link:  loginLink,
+	}
+
+	err = s.producerSvc.SendEmailRequest(mailPayload)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to publish email to NSQ")
+		return fmt.Errorf("failed to queue email: %w", err)
 	}
 
 	return nil
@@ -293,21 +307,17 @@ func (s *authServiceImpl) ForgotPassword(ctx context.Context, email, userAgent, 
 
 	resetPasswordLink := fmt.Sprintf("%s?token=%s", s.env.External.ResetPasswordURL, resetToken)
 
-	emailBody, err := lib.BuildEmailBodyResetPassword(user.Name, resetPasswordLink)
-	if err != nil {
-		return err
+	mailPayload := dto.EmailTaskPayload{
+		Type:  "forgot_password",
+		Email: user.Email,
+		Name:  user.Name,
+		Link:  resetPasswordLink,
 	}
 
-	mailData := dto.MailgunRequest{
-		To:          []string{user.Email},
-		Subject:     lib.DefaultEmailSubjectResetPassword,
-		Body:        emailBody,
-		Attachments: []string{},
-	}
-
-	_, err = s.Mailer.Send(mailData)
+	err = s.producerSvc.SendEmailRequest(mailPayload)
 	if err != nil {
-		return fmt.Errorf("failed to send email: %w", err)
+		log.Error().Err(err).Msg("failed to publish email to NSQ")
+		return fmt.Errorf("failed to queue email: %w", err)
 	}
 
 	return nil
@@ -399,6 +409,12 @@ func (s *authServiceImpl) ResetPassword(ctx context.Context, token string, newPa
 		return lib.ErrInvalidToken
 	}
 
+	user, err := s.userRepo.GetByUserId(ctx, session.UserId)
+	if err != nil {
+		log.Error().Err(err).Str("user_id", session.UserId).Msg("failed to find user for password reset")
+		return fmt.Errorf("failed to retrieve user: %w", err)
+	}
+
 	if len(newPassword) < 8 {
 		return lib.ErrWeakPassword
 	}
@@ -425,6 +441,18 @@ func (s *authServiceImpl) ResetPassword(ctx context.Context, token string, newPa
 	if err != nil {
 		log.Warn().Err(err).Str("session_id", session.SessionId).Msg("failed to delete reset token after use")
 		return fmt.Errorf("failed to delete reset session: %w", err)
+	}
+
+	mailPayload := dto.EmailTaskPayload{
+		Type:  "password_reset_success",
+		Email: user.Email,
+		Name:  user.Name,
+	}
+
+	err = s.producerSvc.SendEmailRequest(mailPayload)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to publish email to NSQ")
+		return fmt.Errorf("failed to queue email: %w", err)
 	}
 
 	log.Info().

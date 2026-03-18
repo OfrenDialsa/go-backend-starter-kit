@@ -2,28 +2,32 @@ package mailer
 
 import (
 	"fmt"
-	"github/OfrenDialsa/go-gin-starter/config" // Pastikan path config benar
+	"github/OfrenDialsa/go-gin-starter/config"
 	"github/OfrenDialsa/go-gin-starter/internal/dto"
 
 	"github.com/rs/zerolog/log"
 	"gopkg.in/gomail.v2"
 )
 
-type SmtpMailer struct {
+type SmtpMailer interface {
+	Send(req dto.MailerRequest) (string, error)
+}
+
+type smtpMailerImpl struct {
 	Config       *config.EnvironmentVariable
 	MailFrom     string
 	MailFromName string
 }
 
-func NewSMTPMailer(cfg *config.EnvironmentVariable, mailFrom, mailFromName string) *SmtpMailer {
-	return &SmtpMailer{
+func NewSMTPMailer(cfg *config.EnvironmentVariable, mailFrom, mailFromName string) SmtpMailer {
+	return &smtpMailerImpl{
 		Config:       cfg,
 		MailFrom:     mailFrom,
 		MailFromName: mailFromName,
 	}
 }
 
-func (s *SmtpMailer) Send(req dto.MailgunRequest) (string, error) {
+func (s *smtpMailerImpl) Send(req dto.MailerRequest) (string, error) {
 	from := fmt.Sprintf("%s <%s>", s.MailFromName, s.MailFrom)
 
 	m := gomail.NewMessage()
@@ -47,11 +51,6 @@ func (s *SmtpMailer) Send(req dto.MailgunRequest) (string, error) {
 		log.Error().Err(err).Msg("failed to send email via SMTP")
 		return "failed", err
 	}
-
-	log.Info().
-		Str("subject", req.Subject).
-		Str("recipient", req.To[0]).
-		Msg("email sent successfully via SMTP")
 
 	return "success", nil
 }
