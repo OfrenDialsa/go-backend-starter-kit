@@ -1,8 +1,6 @@
 package lib
 
 import (
-	"net/http"
-
 	"github.com/gin-gonic/gin"
 )
 
@@ -23,12 +21,6 @@ type ErrorResponse struct {
 	Details interface{} `json:"details,omitempty"`
 }
 
-type HTTPErrorResp struct {
-	Success bool   `json:"success" default:"false"`
-	Message string `json:"message,omitempty"`
-	Error   error  `json:"error"`
-}
-
 func RespondSuccess(ctx *gin.Context, code int, message string, data interface{}) {
 	if message == "" {
 		message = MessageSuccess
@@ -40,20 +32,13 @@ func RespondSuccess(ctx *gin.Context, code int, message string, data interface{}
 	})
 }
 
-func RespondError(ctx *gin.Context, code int, message string, err error) {
-	switch err {
-	case ErrorMessageUnauthorized:
-		code = http.StatusUnauthorized
-	case ErrorMessageInvalidInput:
-		code = http.StatusBadRequest
-	case ErrorMessageDataNotFound, ErrorMessageUserNotFound:
-		code = http.StatusNotFound
-	}
-
-	ctx.JSON(code, HTTPErrorResp{
+func RespondError(ctx *gin.Context, err *AppError) {
+	ctx.JSON(err.HTTPStatus, HTTPError{
 		Success: false,
-		Message: message,
-		Error:   err,
+		Message: err.Message,
+		Error: ErrorResponse{
+			Code: err.Code,
+		},
 	})
 }
 
@@ -64,16 +49,6 @@ func RespondValidationError(ctx *gin.Context, code int, message string, details 
 		Error: ErrorResponse{
 			Code:    "VALIDATION_ERROR",
 			Details: details,
-		},
-	})
-}
-
-func RespondErrorWithCode(ctx *gin.Context, code int, message string, errorCode string) {
-	ctx.JSON(code, HTTPError{
-		Success: false,
-		Message: message,
-		Error: ErrorResponse{
-			Code: errorCode,
 		},
 	})
 }

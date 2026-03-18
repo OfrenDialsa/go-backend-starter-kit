@@ -301,6 +301,24 @@ func (_m *UserRepository) UpdatePassword(ctx context.Context, userId string, pas
 	return r0
 }
 
+// UpdateVerifiedEmail provides a mock function with given fields: ctx, tx, userId
+func (_m *UserRepository) UpdateVerifiedEmail(ctx context.Context, tx pgx.Tx, userId string) error {
+	ret := _m.Called(ctx, tx, userId)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateVerifiedEmail")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, pgx.Tx, string) error); ok {
+		r0 = rf(ctx, tx, userId)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // NewUserRepository creates a new instance of UserRepository. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewUserRepository(t interface {

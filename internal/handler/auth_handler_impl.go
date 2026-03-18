@@ -40,7 +40,7 @@ func (h *AuthHandlerImpl) Register(ctx *gin.Context) {
 	var req dto.RegisterRequest
 
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		lib.RespondValidationError(ctx, http.StatusBadRequest, lib.ErrBadPayload, parseValidationErrors(err))
+		lib.RespondValidationError(ctx, http.StatusBadRequest, "Bad payload", parseValidationErrors(err))
 		return
 	}
 
@@ -49,21 +49,53 @@ func (h *AuthHandlerImpl) Register(ctx *gin.Context) {
 		return
 	}
 
-	resp, err := h.authService.Register(ctx.Request.Context(), &req)
+	ia := ctx.ClientIP()
+	ua := ctx.Request.UserAgent()
+
+	resp, err := h.authService.Register(ctx.Request.Context(), ua, ia, &req)
 	if err != nil {
-		switch err {
-		case lib.ErrorMessageEmailExists:
-			lib.RespondError(ctx, http.StatusBadRequest, lib.ErrEmailAlreadyExists, nil)
+		if appErr, ok := err.(*lib.AppError); ok {
+			lib.RespondError(ctx, appErr)
 			return
-		case lib.ErrorMessageUsernameNotAvailable:
-			lib.RespondError(ctx, http.StatusBadRequest, lib.ErrUsernameNotAvailable, nil)
-		default:
-			lib.RespondError(ctx, http.StatusInternalServerError, "Internal server error", nil)
 		}
+
+		lib.RespondError(ctx, lib.ErrInternalServer)
 		return
 	}
 
 	lib.RespondSuccess(ctx, http.StatusCreated, lib.MsgRegistrationSuccess, resp)
+}
+
+// VerifyEmail godoc
+// @Summary      Verify user email
+// @Description  Verifies the user's email address using a token sent via email.
+// @Tags         Auth
+// @Accept       json
+// @Produce      json
+// @Param        token    query     string  true  "Verification token"
+// @Success      200      {object}  lib.APIResponse "Email verified successfully"
+// @Failure      400      {object}  lib.HTTPError "Invalid or expired token"
+// @Failure      500      {object}  lib.HTTPError "Internal server error"
+// @Router       /api/v1/auth/verify-email [get]
+func (h *AuthHandlerImpl) VerifyEmail(ctx *gin.Context) {
+	token := ctx.Query("token")
+
+	if token == "" {
+		lib.RespondError(ctx, lib.ErrInvalidToken)
+		return
+	}
+
+	err := h.authService.VerifyEmail(ctx.Request.Context(), token)
+	if err != nil {
+		if appErr, ok := err.(*lib.AppError); ok {
+			lib.RespondError(ctx, appErr)
+			return
+		}
+		lib.RespondError(ctx, lib.ErrInternalServer)
+		return
+	}
+
+	lib.RespondSuccess(ctx, http.StatusOK, "Email verified successfully", nil)
 }
 
 // Login handles user login
@@ -82,7 +114,7 @@ func (h *AuthHandlerImpl) Login(ctx *gin.Context) {
 	var req dto.LoginRequest
 
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		lib.RespondValidationError(ctx, http.StatusBadRequest, lib.ErrBadPayload, parseValidationErrors(err))
+		lib.RespondValidationError(ctx, http.StatusBadRequest, "Bad payload", parseValidationErrors(err))
 		return
 	}
 
@@ -96,12 +128,12 @@ func (h *AuthHandlerImpl) Login(ctx *gin.Context) {
 
 	resp, err := h.authService.Login(ctx.Request.Context(), req)
 	if err != nil {
-		if err == lib.ErrorMessageInvalidCredentials {
-			lib.RespondError(ctx, http.StatusUnauthorized, "Invalid email or password", err)
+		if appErr, ok := err.(*lib.AppError); ok {
+			lib.RespondError(ctx, appErr)
 			return
 		}
 
-		lib.RespondError(ctx, http.StatusInternalServerError, "Internal server error", err)
+		lib.RespondError(ctx, lib.ErrInternalServer)
 		return
 	}
 
@@ -123,22 +155,18 @@ func (h *AuthHandlerImpl) RefreshToken(ctx *gin.Context) {
 	var req dto.RefreshTokenRequest
 
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		lib.RespondValidationError(ctx, http.StatusBadRequest, lib.ErrBadPayload, parseValidationErrors(err))
+		lib.RespondValidationError(ctx, http.StatusBadRequest, "Bad payload", parseValidationErrors(err))
 		return
 	}
 
 	resp, err := h.authService.RefreshToken(ctx.Request.Context(), req.RefreshToken)
 	if err != nil {
-		switch err.Error() {
-		case "invalid refresh token", "token already used: security breach detected":
-			lib.RespondError(ctx, http.StatusUnauthorized, err.Error(), err)
-		case "session not found":
-			lib.RespondError(ctx, http.StatusNotFound, "session not found", err)
-		case "session revoked or expired":
-			lib.RespondError(ctx, http.StatusUnauthorized, "session is no longer active, please login again", err)
-		default:
-			lib.RespondError(ctx, http.StatusInternalServerError, "internal server error", err)
+		if appErr, ok := err.(*lib.AppError); ok {
+			lib.RespondError(ctx, appErr)
+			return
 		}
+
+		lib.RespondError(ctx, lib.ErrInternalServer)
 		return
 	}
 
@@ -159,18 +187,18 @@ func (h *AuthHandlerImpl) RefreshToken(ctx *gin.Context) {
 func (h *AuthHandlerImpl) Logout(ctx *gin.Context) {
 	claims := ctx.MustGet("user").(*lib.JWTClaims)
 	if claims == nil {
-		lib.RespondError(ctx, http.StatusUnauthorized, "unauthorized: missing context", nil)
+		lib.RespondError(ctx, lib.ErrMissingContext)
 		return
 	}
 
 	err := h.authService.Logout(ctx.Request.Context(), claims.SessionId)
 	if err != nil {
-		if err.Error() == "session invalid or revoked" {
-			lib.RespondError(ctx, http.StatusUnauthorized, "Session already revoked", err)
+		if appErr, ok := err.(*lib.AppError); ok {
+			lib.RespondError(ctx, appErr)
 			return
 		}
 
-		lib.RespondError(ctx, http.StatusInternalServerError, "Failed to process logout", err)
+		lib.RespondError(ctx, lib.ErrInternalServer)
 		return
 	}
 
@@ -192,18 +220,18 @@ func (h *AuthHandlerImpl) ResetPassword(ctx *gin.Context) {
 	var req dto.ResetPasswordRequest
 
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		lib.RespondValidationError(ctx, http.StatusBadRequest, lib.ErrBadPayload, parseValidationErrors(err))
+		lib.RespondValidationError(ctx, http.StatusBadRequest, "Bad payload", parseValidationErrors(err))
 		return
 	}
 
 	err := h.authService.ResetPassword(ctx.Request.Context(), req.Token, req.NewPassword)
 	if err != nil {
-		if err.Error() == lib.CodeInvalidResetToken {
-			lib.RespondError(ctx, http.StatusBadRequest, lib.ErrInvalidResetToken, err)
+		if appErr, ok := err.(*lib.AppError); ok {
+			lib.RespondError(ctx, appErr)
 			return
 		}
 
-		lib.RespondError(ctx, http.StatusInternalServerError, "Failed to reset password", err)
+		lib.RespondError(ctx, lib.ErrInternalServer)
 		return
 	}
 
@@ -226,7 +254,7 @@ func (h *AuthHandlerImpl) ForgotPassword(ctx *gin.Context) {
 	var req dto.ForgotPasswordRequest
 
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		lib.RespondValidationError(ctx, http.StatusBadRequest, lib.ErrBadPayload, parseValidationErrors(err))
+		lib.RespondValidationError(ctx, http.StatusBadRequest, "Bad payload", parseValidationErrors(err))
 		return
 	}
 
@@ -235,7 +263,7 @@ func (h *AuthHandlerImpl) ForgotPassword(ctx *gin.Context) {
 
 	err := h.authService.ForgotPassword(ctx.Request.Context(), req.Email, userAgent, ipAddress)
 	if err != nil {
-		lib.RespondError(ctx, http.StatusInternalServerError, "Failed to process forgot password", err)
+		lib.RespondError(ctx, lib.ErrInternalServer)
 		return
 	}
 
@@ -253,13 +281,13 @@ func (h *AuthHandlerImpl) ForgotPassword(ctx *gin.Context) {
 func (h *AuthHandlerImpl) CheckEmail(ctx *gin.Context) {
 	email := ctx.Query("email")
 	if email == "" {
-		lib.RespondError(ctx, http.StatusBadRequest, "Email query parameter is required", nil)
+		lib.RespondError(ctx, lib.ErrBadPayload)
 		return
 	}
 
 	exists, err := h.authService.CheckEmail(ctx.Request.Context(), email)
 	if err != nil {
-		lib.RespondError(ctx, http.StatusInternalServerError, "Internal server error", err)
+		lib.RespondError(ctx, lib.ErrInternalServer)
 		return
 	}
 
@@ -279,13 +307,13 @@ func (h *AuthHandlerImpl) CheckEmail(ctx *gin.Context) {
 func (h *AuthHandlerImpl) CheckUsername(ctx *gin.Context) {
 	username := ctx.Query("username")
 	if username == "" {
-		lib.RespondError(ctx, http.StatusBadRequest, "Username query parameter is required", nil)
+		lib.RespondError(ctx, lib.ErrBadPayload)
 		return
 	}
 
 	exists, err := h.authService.CheckUsername(ctx.Request.Context(), username)
 	if err != nil {
-		lib.RespondError(ctx, http.StatusInternalServerError, "Internal server error", err)
+		lib.RespondError(ctx, lib.ErrInternalServer)
 		return
 	}
 

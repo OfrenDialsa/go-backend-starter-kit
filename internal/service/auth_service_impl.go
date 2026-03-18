@@ -39,17 +39,17 @@ func NewAuthService(
 	}
 }
 
-func (s *authServiceImpl) Register(ctx context.Context, req *dto.RegisterRequest) (*dto.RegisterResponse, error) {
+func (s *authServiceImpl) Register(ctx context.Context, userAgent, ipAddress string, req *dto.RegisterRequest) (*dto.RegisterResponse, error) {
 	existingUser, err := s.userRepo.GetByEmailOrUsername(ctx, req.Email, req.Username)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check email existence: %w", err)
 	}
 	if existingUser != nil {
 		if existingUser.Email == req.Email {
-			return nil, lib.ErrorMessageEmailExists
+			return nil, lib.ErrEmailAlreadyExists
 		}
 		if existingUser.Username == req.Username {
-			return nil, lib.ErrorMessageUsernameNotAvailable
+			return nil, lib.ErrUsernameNotAvailable
 		}
 	}
 
@@ -75,7 +75,7 @@ func (s *authServiceImpl) Register(ctx context.Context, req *dto.RegisterRequest
 		Name:            req.Name,
 		Status:          "active",
 		Role:            "user",
-		EmailVerifiedAt: now,
+		EmailVerifiedAt: nil,
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}
@@ -85,8 +85,53 @@ func (s *authServiceImpl) Register(ctx context.Context, req *dto.RegisterRequest
 		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
 
+	verifToken, err := utils.GenerateToken()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate reset token: %w", err)
+	}
+
+	hashedToken := utils.HashTokenSHA256(verifToken)
+
+	expiresAt := time.Now().Add(time.Hour)
+
+	session := &model.UserSession{
+		SessionId: utils.Generate(),
+		UserId:    user.UserId,
+		TokenHash: hashedToken,
+		ExpiresAt: expiresAt,
+		IPAddress: ipAddress,
+		UserAgent: userAgent,
+		Type:      "verify_email",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	err = s.sessionRepo.Create(ctx, tx, session)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create reset password session: %w", err)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	verifLink := fmt.Sprintf("%s?token=%s", s.env.External.VerifyEmailURL, verifToken)
+
+	emailBody, err := lib.BuildEmailBody(user.Name, verifLink)
+	if err != nil {
+		return nil, err
+	}
+
+	mailData := dto.MailgunRequest{
+		To:          []string{user.Email},
+		Subject:     lib.DefaultEmailSubject,
+		Body:        emailBody,
+		Attachments: []string{},
+	}
+
+	_, err = s.Mailer.Send(mailData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send email: %w", err)
 	}
 
 	return &dto.RegisterResponse{
@@ -101,17 +146,50 @@ func (s *authServiceImpl) Register(ctx context.Context, req *dto.RegisterRequest
 	}, nil
 }
 
+func (s *authServiceImpl) VerifyEmail(ctx context.Context, token string) error {
+	hashedToken := utils.HashTokenSHA256(token)
+
+	session, err := s.sessionRepo.GetByToken(ctx, hashedToken, "verify_email")
+	if err != nil {
+		return fmt.Errorf("failed to retrieve session: %w", err)
+	}
+
+	if session == nil || session.RevokedAt != nil || session.ExpiresAt.Before(time.Now()) {
+		return lib.ErrInvalidToken
+	}
+
+	err = s.userRepo.UpdateVerifiedEmail(ctx, nil, session.UserId)
+	if err != nil {
+		return fmt.Errorf("failed to update verified email: %w", err)
+	}
+
+	err = s.sessionRepo.DeleteSession(ctx, session.SessionId)
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to cleanup session")
+	}
+
+	return nil
+}
+
 func (s *authServiceImpl) Login(ctx context.Context, req dto.LoginRequest) (*dto.LoginResponse, error) {
 	user, err := s.userRepo.GetByEmailOrUsername(ctx, req.Identifier, req.Identifier)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 	if user == nil || user.PasswordHash == nil {
-		return nil, lib.ErrorMessageInvalidCredentials
+		return nil, lib.ErrInvalidCredential
+	}
+
+	if user.EmailVerifiedAt == nil {
+		return nil, lib.ErrEmailNotVerified
+	}
+
+	if user.Status != "active" {
+		return nil, lib.ErrAccountInactive
 	}
 
 	if err := lib.Verify(*user.PasswordHash, req.Password); err != nil {
-		return nil, lib.ErrorMessageInvalidCredentials
+		return nil, lib.ErrInvalidCredential
 	}
 
 	now := time.Now()
@@ -145,7 +223,7 @@ func (s *authServiceImpl) Login(ctx context.Context, req dto.LoginRequest) (*dto
 		UpdatedAt: now,
 	}
 
-	if err := s.sessionRepo.Create(ctx, userSession); err != nil {
+	if err := s.sessionRepo.Create(ctx, nil, userSession); err != nil {
 		return nil, fmt.Errorf("failed to create session: %w", err)
 	}
 
@@ -208,12 +286,12 @@ func (s *authServiceImpl) ForgotPassword(ctx context.Context, email, userAgent, 
 		UpdatedAt: time.Now(),
 	}
 
-	err = s.sessionRepo.Create(ctx, session)
+	err = s.sessionRepo.Create(ctx, nil, session)
 	if err != nil {
 		return fmt.Errorf("failed to create reset password session: %w", err)
 	}
 
-	resetPasswordLink := fmt.Sprintf("%s?token=%s", s.env.External.FrontendURL, resetToken)
+	resetPasswordLink := fmt.Sprintf("%s?token=%s", s.env.External.ResetPasswordURL, resetToken)
 
 	emailBody, err := lib.BuildEmailBodyResetPassword(user.Name, resetPasswordLink)
 	if err != nil {
@@ -239,7 +317,7 @@ func (s *authServiceImpl) RefreshToken(ctx context.Context, refreshToken string)
 	claims, err := lib.ValidateToken(refreshToken, s.env.JWT.SecretKey.Refresh)
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to validate refresh token")
-		return nil, fmt.Errorf("invalid refresh token")
+		return nil, lib.ErrInvalidToken
 	}
 
 	session, err := s.sessionRepo.GetBySessionId(ctx, claims.SessionId)
@@ -249,7 +327,7 @@ func (s *authServiceImpl) RefreshToken(ctx context.Context, refreshToken string)
 	}
 	if session == nil {
 		log.Warn().Str("session_id", claims.SessionId).Msg("refresh token session not found")
-		return nil, fmt.Errorf("session not found")
+		return nil, lib.ErrUnauthorized
 	}
 
 	if session.TokenHash != refreshToken {
@@ -259,12 +337,12 @@ func (s *authServiceImpl) RefreshToken(ctx context.Context, refreshToken string)
 			Msg("REPLAY ATTACK DETECTED: refresh token already used, revoking session")
 
 		s.sessionRepo.RevokeBySessionId(ctx, session.SessionId)
-		return nil, fmt.Errorf("token already used: security breach detected")
+		return nil, lib.ErrUnauthorized
 	}
 
 	if session.RevokedAt != nil || time.Now().After(session.ExpiresAt) {
 		log.Info().Str("session_id", session.SessionId).Msg("attempted to use a revoked or expired session")
-		return nil, fmt.Errorf("session revoked or expired")
+		return nil, lib.ErrUnauthorized
 	}
 
 	accessExpiry := time.Duration(s.env.JWT.Token.AccessLifeTime)
@@ -318,7 +396,11 @@ func (s *authServiceImpl) ResetPassword(ctx context.Context, token string, newPa
 			Str("token_hash", hashedToken).
 			Interface("session_exists", session != nil).
 			Msg("invalid or expired reset token attempt")
-		return lib.ErrorMessageInvalidResetToken
+		return lib.ErrInvalidToken
+	}
+
+	if len(newPassword) < 8 {
+		return lib.ErrWeakPassword
 	}
 
 	hashedPassword, err := lib.Hash(newPassword)
@@ -342,7 +424,7 @@ func (s *authServiceImpl) ResetPassword(ctx context.Context, token string, newPa
 	err = s.sessionRepo.DeleteSession(ctx, session.SessionId)
 	if err != nil {
 		log.Warn().Err(err).Str("session_id", session.SessionId).Msg("failed to delete reset token after use")
-		return err
+		return fmt.Errorf("failed to delete reset session: %w", err)
 	}
 
 	log.Info().

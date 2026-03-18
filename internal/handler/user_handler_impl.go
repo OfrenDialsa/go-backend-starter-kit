@@ -40,7 +40,7 @@ func NewUserHandler(userService service.UserService) UserHandler {
 func (u *UserHandlerImpl) GetMe(ctx *gin.Context) {
 	claims := ctx.MustGet("user").(*lib.JWTClaims)
 	if claims == nil {
-		lib.RespondError(ctx, http.StatusUnauthorized, "unauthorized: missing context", nil)
+		lib.RespondError(ctx, lib.ErrMissingContext)
 		return
 	}
 
@@ -48,12 +48,12 @@ func (u *UserHandlerImpl) GetMe(ctx *gin.Context) {
 	if err != nil {
 		log.Error().Err(err).Str("userId", claims.UserId).Msg("Error in GetMe")
 
-		if err == lib.ErrorMessageUserNotFound {
-			lib.RespondError(ctx, http.StatusNotFound, lib.ErrUserNotFound, nil)
+		if appErr, ok := err.(*lib.AppError); ok {
+			lib.RespondError(ctx, appErr)
 			return
 		}
 
-		lib.RespondError(ctx, http.StatusInternalServerError, "Internal server error", nil)
+		lib.RespondError(ctx, lib.ErrInternalServer)
 		return
 	}
 
@@ -79,13 +79,13 @@ func (u *UserHandlerImpl) GetMe(ctx *gin.Context) {
 func (u *UserHandlerImpl) UpdateProfile(ctx *gin.Context) {
 	claims := ctx.MustGet("user").(*lib.JWTClaims)
 	if claims == nil {
-		lib.RespondError(ctx, http.StatusUnauthorized, "unauthorized: missing context", nil)
+		lib.RespondError(ctx, lib.ErrMissingContext)
 		return
 	}
 
 	var req dto.UpdateProfileRequest
 	if err := ctx.ShouldBind(&req); err != nil {
-		lib.RespondValidationError(ctx, http.StatusBadRequest, lib.ErrBadPayload, parseValidationErrors(err))
+		lib.RespondValidationError(ctx, http.StatusBadRequest, "Bad payload", parseValidationErrors(err))
 		return
 	}
 
@@ -94,7 +94,7 @@ func (u *UserHandlerImpl) UpdateProfile(ctx *gin.Context) {
 	req.Name = strings.TrimSpace(req.Name)
 
 	if req.Username == "" && req.Name == "" && req.Avatar == nil {
-		lib.RespondError(ctx, http.StatusBadRequest, "At least name or avatar must be provided", nil)
+		lib.RespondError(ctx, lib.ErrBadPayload)
 		return
 	}
 
@@ -109,7 +109,7 @@ func (u *UserHandlerImpl) UpdateProfile(ctx *gin.Context) {
 	if req.Avatar != nil {
 		file, err := req.Avatar.Open()
 		if err != nil {
-			lib.RespondError(ctx, http.StatusInternalServerError, "Failed to open avatar file", err)
+			lib.RespondError(ctx, lib.ErrInternalServer)
 			return
 		}
 		defer file.Close()
@@ -117,12 +117,12 @@ func (u *UserHandlerImpl) UpdateProfile(ctx *gin.Context) {
 		buf := make([]byte, 512)
 		_, err = file.Read(buf)
 		if err != nil {
-			lib.RespondError(ctx, http.StatusInternalServerError, "Failed to read avatar file", err)
+			lib.RespondError(ctx, lib.ErrInternalServer)
 			return
 		}
 
 		if _, err := file.Seek(0, 0); err != nil {
-			lib.RespondError(ctx, http.StatusInternalServerError, "Failed to reset file pointer", err)
+			lib.RespondError(ctx, lib.ErrInternalServer)
 			return
 		}
 
@@ -135,12 +135,12 @@ func (u *UserHandlerImpl) UpdateProfile(ctx *gin.Context) {
 		}
 
 		if !allowedTypes[contentType] {
-			lib.RespondError(ctx, http.StatusBadRequest, "This file type is not allowed. please upload jpeg, png, or webp.", nil)
+			lib.RespondError(ctx, lib.ErrInvalidFileType)
 			return
 		}
 
 		if req.Avatar.Size > 2*1024*1024 {
-			lib.RespondError(ctx, http.StatusBadRequest, "Avatar image is too large (max 2MB)", nil)
+			lib.RespondError(ctx, lib.ErrFileTooLarge)
 			return
 		}
 	}
@@ -152,14 +152,12 @@ func (u *UserHandlerImpl) UpdateProfile(ctx *gin.Context) {
 	if err != nil {
 		log.Error().Err(err).Str("userId", claims.UserId).Msg("Error in UpdateProfile Service")
 
-		switch err {
-		case lib.ErrorMessageUserNotFound:
-			lib.RespondError(ctx, http.StatusNotFound, err.Error(), err)
-		case lib.ErrorMessageUsernameNotAvailable:
-			lib.RespondError(ctx, http.StatusNotFound, err.Error(), err)
-		default:
-			lib.RespondError(ctx, http.StatusInternalServerError, "Internal server error", err)
+		if appErr, ok := err.(*lib.AppError); ok {
+			lib.RespondError(ctx, appErr)
+			return
 		}
+
+		lib.RespondError(ctx, lib.ErrInternalServer)
 		return
 	}
 
@@ -182,13 +180,13 @@ func (u *UserHandlerImpl) UpdateProfile(ctx *gin.Context) {
 func (u *UserHandlerImpl) ChangePassword(ctx *gin.Context) {
 	claims := ctx.MustGet("user").(*lib.JWTClaims)
 	if claims == nil {
-		lib.RespondError(ctx, http.StatusUnauthorized, "unauthorized: missing context", nil)
+		lib.RespondError(ctx, lib.ErrMissingContext)
 		return
 	}
 
 	var req dto.ChangePasswordRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		lib.RespondValidationError(ctx, http.StatusBadRequest, lib.ErrBadPayload, parseValidationErrors(err))
+		lib.RespondValidationError(ctx, http.StatusBadRequest, "Bad payload", parseValidationErrors(err))
 		return
 	}
 
@@ -198,20 +196,12 @@ func (u *UserHandlerImpl) ChangePassword(ctx *gin.Context) {
 	if err != nil {
 		log.Error().Err(err).Str("userId", req.UserId).Msg("Error in ChangePassword")
 
-		switch err {
-		case lib.ErrorMessageUserHasNoPassword:
-			lib.RespondErrorWithCode(ctx, http.StatusBadRequest, lib.ErrUserHasNoPassword, lib.CodeUserHasNoPassword)
-		case lib.ErrorMessageInvalidCurrentPassword:
-			lib.RespondErrorWithCode(ctx, http.StatusBadRequest, lib.ErrInvalidCurrentPassword, lib.CodeInvalidCurrentPassword)
-		case lib.ErrorMessageWeakPassword:
-			lib.RespondErrorWithCode(ctx, http.StatusBadRequest, lib.ErrWeakPassword, lib.CodeWeakPassword)
-		case lib.ErrorMessageSamePassword:
-			lib.RespondErrorWithCode(ctx, http.StatusBadRequest, lib.ErrSamePassword, lib.CodeSamePassword)
-		case lib.ErrorMessageUserNotFound:
-			lib.RespondError(ctx, http.StatusNotFound, lib.ErrUserNotFound, nil)
-		default:
-			lib.RespondError(ctx, http.StatusInternalServerError, "Internal server error", nil)
+		if appErr, ok := err.(*lib.AppError); ok {
+			lib.RespondError(ctx, appErr)
+			return
 		}
+
+		lib.RespondError(ctx, lib.ErrInternalServer)
 		return
 	}
 
@@ -234,13 +224,13 @@ func (u *UserHandlerImpl) ChangePassword(ctx *gin.Context) {
 func (u *UserHandlerImpl) DeleteAccount(ctx *gin.Context) {
 	claims := ctx.MustGet("user").(*lib.JWTClaims)
 	if claims == nil {
-		lib.RespondError(ctx, http.StatusUnauthorized, "unauthorized: missing context", nil)
+		lib.RespondError(ctx, lib.ErrMissingContext)
 		return
 	}
 
 	var req dto.UserDeleteAccountRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		lib.RespondValidationError(ctx, http.StatusBadRequest, lib.ErrBadPayload, parseValidationErrors(err))
+		lib.RespondValidationError(ctx, http.StatusBadRequest, "Bad payload", parseValidationErrors(err))
 		return
 	}
 
@@ -249,14 +239,12 @@ func (u *UserHandlerImpl) DeleteAccount(ctx *gin.Context) {
 	if err != nil {
 		log.Error().Err(err).Str("userId", claims.UserId).Msg("Error in DeleteAccount")
 
-		switch err {
-		case lib.ErrorMessageInvalidPassword:
-			lib.RespondErrorWithCode(ctx, http.StatusBadRequest, lib.ErrInvalidPassword, lib.CodeInvalidPassword)
-		case lib.ErrorMessageUserNotFound:
-			lib.RespondError(ctx, http.StatusNotFound, lib.ErrUserNotFound, nil)
-		default:
-			lib.RespondError(ctx, http.StatusInternalServerError, "Internal server error", nil)
+		if appErr, ok := err.(*lib.AppError); ok {
+			lib.RespondError(ctx, appErr)
+			return
 		}
+
+		lib.RespondError(ctx, lib.ErrInternalServer)
 		return
 	}
 
@@ -278,7 +266,7 @@ func (u *UserHandlerImpl) DeleteAccount(ctx *gin.Context) {
 func (u *UserHandlerImpl) DeleteAvatar(ctx *gin.Context) {
 	claims := ctx.MustGet("user").(*lib.JWTClaims)
 	if claims == nil {
-		lib.RespondError(ctx, http.StatusUnauthorized, "unauthorized: missing context", nil)
+		lib.RespondError(ctx, lib.ErrMissingContext)
 		return
 	}
 
@@ -286,12 +274,12 @@ func (u *UserHandlerImpl) DeleteAvatar(ctx *gin.Context) {
 	if err != nil {
 		log.Error().Err(err).Str("userId", claims.UserId).Msg("Error in DeleteAvatar Handler")
 
-		switch err {
-		case lib.ErrorMessageUserNotFound:
-			lib.RespondError(ctx, http.StatusNotFound, err.Error(), err)
-		default:
-			lib.RespondError(ctx, http.StatusInternalServerError, "Internal server error", err)
+		if appErr, ok := err.(*lib.AppError); ok {
+			lib.RespondError(ctx, appErr)
+			return
 		}
+
+		lib.RespondError(ctx, lib.ErrInternalServer)
 		return
 	}
 

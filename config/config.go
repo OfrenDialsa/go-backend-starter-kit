@@ -85,7 +85,8 @@ type EnvironmentVariable struct {
 		} `mapstructure:"TOKEN"`
 	} `mapstructure:"JWT"`
 	External struct {
-		FrontendURL string `mapstructure:"FRONTEND_URL"`
+		ResetPasswordURL string `mapstructure:"RESET_PASSWORD_URL"`
+		VerifyEmailURL   string `mapstructure:"VERIFY_EMAIL_URL"`
 	} `mapstructure:"EXTERNAL"`
 	Mail struct {
 		From     string `mapstructure:"FROM"`

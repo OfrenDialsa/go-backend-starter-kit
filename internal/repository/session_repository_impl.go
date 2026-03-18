@@ -17,13 +17,25 @@ func NewSessionRepository(db *database.WrapDB) SessionRepository {
 	return &sessionRepositoryImpl{db: db}
 }
 
-func (r *sessionRepositoryImpl) Create(ctx context.Context, session *model.UserSession) error {
+func (r *sessionRepositoryImpl) Create(ctx context.Context, tx pgx.Tx, session *model.UserSession) error {
 	query := `
-		INSERT INTO user_sessions (session_id, user_id, token_hash, type, ip_address, user_agent, expires_at, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		RETURNING id
-	`
-	return r.db.Database.Conn.QueryRow(ctx, query,
+        INSERT INTO user_sessions (
+            session_id, user_id, token_hash, type, 
+            ip_address, user_agent, expires_at, created_at, updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        RETURNING id
+    `
+
+	var runner interface {
+		QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	} = r.db.Database.Conn
+
+	if tx != nil {
+		runner = tx
+	}
+
+	err := runner.QueryRow(ctx, query,
 		session.SessionId,
 		session.UserId,
 		session.TokenHash,
@@ -34,6 +46,8 @@ func (r *sessionRepositoryImpl) Create(ctx context.Context, session *model.UserS
 		session.CreatedAt,
 		session.UpdatedAt,
 	).Scan(&session.Id)
+
+	return err
 }
 
 func (r *sessionRepositoryImpl) Update(ctx context.Context, session *model.UserSession) error {
