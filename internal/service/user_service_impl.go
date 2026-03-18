@@ -41,11 +41,11 @@ func NewUserService(env *config.EnvironmentVariable, txStarter TxStarter, userRe
 func (u *userServiceImpl) GetMe(ctx context.Context, userId string) (*dto.GetMeResponse, error) {
 	user, err := u.userRepo.GetByUserId(ctx, userId)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
 	if user == nil {
-		return nil, lib.ErrorMessageUserNotFound
+		return nil, lib.ErrUserNotFound
 	}
 
 	return &dto.GetMeResponse{
@@ -65,8 +65,11 @@ func (u *userServiceImpl) GetMe(ctx context.Context, userId string) (*dto.GetMeR
 
 func (u *userServiceImpl) UpdateProfile(ctx context.Context, req dto.UpdateProfileRequest) (*dto.UpdateProfileResponse, error) {
 	user, err := u.userRepo.GetByUserId(ctx, req.UserId)
-	if err != nil || user == nil {
-		return nil, lib.ErrorMessageUserNotFound
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+	if user == nil {
+		return nil, lib.ErrUserNotFound
 	}
 
 	if req.Username != "" {
@@ -75,8 +78,10 @@ func (u *userServiceImpl) UpdateProfile(ctx context.Context, req dto.UpdateProfi
 			return nil, fmt.Errorf("failed to check username: %w", err)
 		}
 		if existingUser != nil && existingUser.UserId != req.UserId {
-			return nil, lib.ErrorMessageUsernameNotAvailable
+			return nil, lib.ErrUsernameNotAvailable
 		}
+
+		user.Username = req.Username
 	}
 
 	var oldPath string
@@ -198,23 +203,26 @@ func (u *userServiceImpl) UpdateProfile(ctx context.Context, req dto.UpdateProfi
 func (u *userServiceImpl) ChangePassword(ctx context.Context, req dto.ChangePasswordRequest) error {
 	user, err := u.userRepo.GetByUserId(ctx, req.UserId)
 	if err != nil {
-		return lib.ErrorMessageUserNotFound
+		return fmt.Errorf("failed to get user: %w", err)
+	}
+	if user == nil {
+		return lib.ErrUserNotFound
 	}
 
 	if user.PasswordHash == nil {
-		return lib.ErrorMessageUserHasNoPassword
+		return lib.ErrUserHasNoPassword
 	}
 
 	if err := lib.Verify(*user.PasswordHash, req.Current); err != nil {
-		return lib.ErrorMessageInvalidCurrentPassword
+		return lib.ErrInvalidCurrentPassword
 	}
 
 	if !lib.IsValidPassword(req.New) {
-		return lib.ErrorMessageWeakPassword
+		return lib.ErrWeakPassword
 	}
 
 	if err := lib.Verify(*user.PasswordHash, req.New); err == nil {
-		return lib.ErrorMessageSamePassword
+		return lib.ErrSamePassword
 	}
 
 	hashedPassword, err := lib.Hash(req.New)
@@ -245,11 +253,11 @@ func (u *userServiceImpl) ChangePassword(ctx context.Context, req dto.ChangePass
 func (u *userServiceImpl) DeleteAccount(ctx context.Context, req dto.UserDeleteAccountRequest) error {
 	user, err := u.userRepo.GetByUserId(ctx, req.UserId)
 	if err != nil {
-		return lib.ErrorMessageUserNotFound
+		return lib.ErrUserNotFound
 	}
 
 	if err := lib.Verify(*user.PasswordHash, req.Password); err != nil {
-		return lib.ErrorMessageInvalidPassword
+		return lib.ErrInvalidPassword
 	}
 
 	tx, err := u.txStarter.Begin(ctx)
@@ -278,7 +286,7 @@ func (u *userServiceImpl) DeleteAccount(ctx context.Context, req dto.UserDeleteA
 func (u *userServiceImpl) DeleteAvatar(ctx context.Context, userId string) error {
 	user, err := u.userRepo.GetByUserId(ctx, userId)
 	if err != nil || user == nil {
-		return lib.ErrorMessageUserNotFound
+		return lib.ErrUserNotFound
 	}
 
 	if user.AvatarURL == nil || *user.AvatarURL == "" {

@@ -14,6 +14,7 @@ import (
 	"github/OfrenDialsa/go-gin-starter/internal/service"
 	"github/OfrenDialsa/go-gin-starter/lib"
 	"github/OfrenDialsa/go-gin-starter/tests/mocks"
+	"github/OfrenDialsa/go-gin-starter/utils"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -68,7 +69,6 @@ func setupAuthService(t *testing.T) *authTestDeps {
 }
 
 // ===================== Register Tests =====================
-
 func TestRegister_Success(t *testing.T) {
 	d := setupAuthService(t)
 	ctx := context.Background()
@@ -81,31 +81,38 @@ func TestRegister_Success(t *testing.T) {
 	}
 
 	d.userRepo.On("GetByEmailOrUsername", ctx, req.Email, req.Username).Return(nil, nil)
+
 	d.txStarter.On("Begin", ctx).Return(d.mockTx, nil)
-	d.userRepo.On("Create", ctx, d.mockTx, mock.AnythingOfType("*model.User")).Return(nil)
 	d.mockTx.On("Commit", ctx).Return(nil)
 	d.mockTx.On("Rollback", ctx).Return(nil).Maybe()
 
-	resp, err := d.svc.Register(ctx, req)
+	d.userRepo.On("Create", ctx, d.mockTx, mock.AnythingOfType("*model.User")).Return(nil)
+
+	d.sessionRepo.On("Create", ctx, d.mockTx, mock.AnythingOfType("*model.UserSession")).Return(nil)
+
+	d.mailer.On("Send", mock.AnythingOfType("dto.MailgunRequest")).Return("msg-id", nil)
+
+	resp, err := d.svc.Register(ctx, "UA", "IP", req)
 
 	assert.NoError(t, err)
 	assert.NotNil(t, resp)
 	assert.Equal(t, req.Email, resp.User.Email)
 	assert.Equal(t, "active", resp.User.Status)
-}
 
+	d.userRepo.AssertExpectations(t)
+	d.sessionRepo.AssertExpectations(t)
+	d.mailer.AssertExpectations(t)
+}
 func TestRegister_EmailOrUsernameAlreadyExists(t *testing.T) {
 	d := setupAuthService(t)
 	ctx := context.Background()
 
 	existingUser := &model.User{
-		UserId:   "existing-123",
 		Email:    "test@example.com",
 		Username: "testuser",
 	}
 
-	d.userRepo.On("GetByEmailOrUsername", ctx, "test@example.com", "testuser").
-		Return(existingUser, nil)
+	d.userRepo.On("GetByEmailOrUsername", ctx, "test@example.com", "testuser").Return(existingUser, nil)
 
 	req := &dto.RegisterRequest{
 		Email:    "test@example.com",
@@ -113,13 +120,13 @@ func TestRegister_EmailOrUsernameAlreadyExists(t *testing.T) {
 		Password: "password123",
 	}
 
-	resp, err := d.svc.Register(ctx, req)
+	_, err := d.svc.Register(ctx, "UA", "IP", req)
 
 	assert.Error(t, err)
-	assert.Nil(t, resp)
-	assert.Contains(t, err.Error(), lib.ErrEmailAlreadyExists)
+	assert.ErrorIs(t, err, lib.ErrEmailAlreadyExists)
 
-	d.userRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+	d.txStarter.AssertNotCalled(t, "Begin", mock.Anything)
+	d.userRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestRegister_DatabaseErrorOnCheck(t *testing.T) {
@@ -134,11 +141,83 @@ func TestRegister_DatabaseErrorOnCheck(t *testing.T) {
 		Username: "newuser",
 	}
 
-	resp, err := d.svc.Register(ctx, req)
+	resp, err := d.svc.Register(ctx, "UA", "IP", req)
 
 	assert.Error(t, err)
 	assert.Nil(t, resp)
 	assert.Contains(t, err.Error(), "database connection error")
+}
+
+// ===================== VerifyEmail Tests =====================
+func TestVerifyEmail_Success(t *testing.T) {
+	d := setupAuthService(t)
+	ctx := context.Background()
+	token := "valid-token-123"
+	hashedToken := utils.HashTokenSHA256(token)
+
+	session := &model.UserSession{
+		SessionId: "session-abc",
+		UserId:    "user-123",
+		ExpiresAt: time.Now().Add(1 * time.Hour),
+		RevokedAt: nil,
+	}
+
+	d.sessionRepo.On("GetByToken", ctx, hashedToken, "verify_email").Return(session, nil)
+	d.userRepo.On("UpdateVerifiedEmail", ctx, nil, session.UserId).Return(nil)
+	d.sessionRepo.On("DeleteSession", ctx, session.SessionId).Return(nil)
+
+	err := d.svc.VerifyEmail(ctx, token)
+
+	assert.NoError(t, err)
+	d.sessionRepo.AssertExpectations(t)
+	d.userRepo.AssertExpectations(t)
+}
+
+func TestVerifyEmail_InvalidOrExpired(t *testing.T) {
+	d := setupAuthService(t)
+	ctx := context.Background()
+	token := "expired-token"
+	hashedToken := utils.HashTokenSHA256(token)
+
+	session := &model.UserSession{
+		ExpiresAt: time.Now().Add(-1 * time.Hour),
+	}
+
+	d.sessionRepo.On("GetByToken", ctx, hashedToken, "verify_email").Return(session, nil)
+
+	err := d.svc.VerifyEmail(ctx, token)
+
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, lib.ErrInvalidToken)
+
+	tokenMissing := "missing-token"
+	hashedMissing := utils.HashTokenSHA256(tokenMissing)
+	d.sessionRepo.On("GetByToken", ctx, hashedMissing, "verify_email").Return(nil, nil)
+
+	errMissing := d.svc.VerifyEmail(ctx, tokenMissing)
+	assert.ErrorIs(t, errMissing, lib.ErrInvalidToken)
+}
+
+func TestVerifyEmail_UpdateFailed(t *testing.T) {
+	d := setupAuthService(t)
+	ctx := context.Background()
+	token := "valid-token"
+	hashedToken := utils.HashTokenSHA256(token)
+
+	session := &model.UserSession{
+		UserId:    "user-123",
+		ExpiresAt: time.Now().Add(1 * time.Hour),
+	}
+
+	d.sessionRepo.On("GetByToken", ctx, hashedToken, "verify_email").Return(session, nil)
+
+	d.userRepo.On("UpdateVerifiedEmail", ctx, nil, session.UserId).
+		Return(errors.New("db error"))
+
+	err := d.svc.VerifyEmail(ctx, token)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to update verified email")
 }
 
 // ===================== Login Tests =====================
@@ -146,18 +225,21 @@ func TestRegister_DatabaseErrorOnCheck(t *testing.T) {
 func TestLogin_Success(t *testing.T) {
 	d := setupAuthService(t)
 	ctx := context.Background()
+	now := time.Now()
 
 	hash := hashPassword(t)
 	user := &model.User{
-		UserId:       "user-1",
-		Email:        "test@example.com",
-		Username:     "testuser",
-		PasswordHash: &hash,
-		Role:         "user",
+		UserId:          "user-1",
+		Email:           "test@example.com",
+		Username:        "testuser",
+		PasswordHash:    &hash,
+		Role:            "user",
+		EmailVerifiedAt: &now,
+		Status:          "active",
 	}
 
 	d.userRepo.On("GetByEmailOrUsername", ctx, "test@example.com", "test@example.com").Return(user, nil)
-	d.sessionRepo.On("Create", ctx, mock.AnythingOfType("*model.UserSession")).Return(nil)
+	d.sessionRepo.On("Create", ctx, nil, mock.AnythingOfType("*model.UserSession")).Return(nil)
 	d.userRepo.On("UpdateLastLogin", ctx, user.UserId, mock.AnythingOfType("time.Time")).Return(nil)
 
 	resp, err := d.svc.Login(ctx, dto.LoginRequest{
@@ -184,6 +266,55 @@ func TestLogin_InvalidCredentials(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Nil(t, resp)
+}
+
+func TestLogin_EmailNotVerified(t *testing.T) {
+	d := setupAuthService(t)
+	ctx := context.Background()
+
+	hash := hashPassword(t)
+	user := &model.User{
+		UserId:          "user-1",
+		Email:           "test@example.com",
+		PasswordHash:    &hash,
+		EmailVerifiedAt: nil,
+	}
+
+	d.userRepo.On("GetByEmailOrUsername", ctx, "test@example.com", "test@example.com").Return(user, nil)
+
+	resp, err := d.svc.Login(ctx, dto.LoginRequest{
+		Identifier: "test@example.com",
+		Password:   "password123",
+	})
+
+	assert.Error(t, err)
+	assert.Nil(t, resp)
+	assert.ErrorIs(t, err, lib.ErrEmailNotVerified)
+}
+
+func TestLogin_AccountInactive(t *testing.T) {
+	d := setupAuthService(t)
+	ctx := context.Background()
+
+	hash := hashPassword(t)
+	now := time.Now()
+	user := &model.User{
+		UserId:          "user-1",
+		Email:           "test@example.com",
+		PasswordHash:    &hash,
+		EmailVerifiedAt: &now,
+		Status:          "inactive",
+	}
+
+	d.userRepo.On("GetByEmailOrUsername", ctx, "test@example.com", "test@example.com").Return(user, nil)
+
+	_, err := d.svc.Login(ctx, dto.LoginRequest{
+		Identifier: "test@example.com",
+		Password:   "password123",
+	})
+
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, lib.ErrAccountInactive)
 }
 
 // ===================== Logout Tests =====================
@@ -233,7 +364,7 @@ func TestForgotPassword_Success(t *testing.T) {
 	user := &model.User{UserId: "user-1", Name: "Ofren", Email: email}
 
 	d.userRepo.On("GetByEmail", ctx, email).Return(user, nil)
-	d.sessionRepo.On("Create", ctx, mock.MatchedBy(func(s *model.UserSession) bool {
+	d.sessionRepo.On("Create", ctx, nil, mock.MatchedBy(func(s *model.UserSession) bool {
 		return s.UserId == user.UserId && s.Type == "reset_password"
 	})).Return(nil)
 	d.mailer.On("Send", mock.AnythingOfType("dto.MailgunRequest")).Return("msg-id", nil)
@@ -262,7 +393,7 @@ func TestForgotPassword_MailerError(t *testing.T) {
 
 	d.userRepo.On("GetByEmail", ctx, email).Return(user, nil)
 
-	d.sessionRepo.On("Create", ctx, mock.MatchedBy(func(s *model.UserSession) bool {
+	d.sessionRepo.On("Create", ctx, nil, mock.MatchedBy(func(s *model.UserSession) bool {
 		return s.Type == "reset_password"
 	})).Return(nil)
 
@@ -294,7 +425,7 @@ func TestForgotPassword_SaveTokenError(t *testing.T) {
 
 	d.userRepo.On("GetByEmail", ctx, email).Return(user, nil)
 
-	d.sessionRepo.On("Create", ctx, mock.Anything).Return(errors.New("failed to persist token"))
+	d.sessionRepo.On("Create", ctx, nil, mock.Anything).Return(errors.New("failed to persist token"))
 
 	err := d.svc.ForgotPassword(ctx, email, "UA", "127.0.0.1")
 
@@ -358,7 +489,7 @@ func TestRefreshToken_ReplayAttack(t *testing.T) {
 	resp, err := d.svc.RefreshToken(ctx, tokenPair.RefreshToken)
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "security breach detected")
+	assert.Contains(t, err.Error(), "Unauthorized")
 	assert.Nil(t, resp)
 }
 
@@ -381,7 +512,7 @@ func TestRefreshToken_Expired(t *testing.T) {
 	resp, err := d.svc.RefreshToken(ctx, tokenPair.RefreshToken)
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "session revoked")
+	assert.Contains(t, err.Error(), "Unauthorized")
 	assert.Nil(t, resp)
 }
 
@@ -398,7 +529,7 @@ func TestRefreshToken_SessionNotFound(t *testing.T) {
 	resp, err := d.svc.RefreshToken(ctx, tokenPair.RefreshToken)
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "session not found")
+	assert.Contains(t, err.Error(), "Unauthorized")
 	assert.Nil(t, resp)
 }
 
@@ -450,7 +581,7 @@ func TestResetPassword_ExpiredToken(t *testing.T) {
 	err := d.svc.ResetPassword(ctx, "token", "pass")
 
 	assert.Error(t, err)
-	assert.Equal(t, lib.ErrorMessageInvalidResetToken, err)
+	assert.Equal(t, lib.ErrInvalidToken, err)
 }
 
 func TestResetPassword_TokenNotFound(t *testing.T) {
@@ -464,7 +595,7 @@ func TestResetPassword_TokenNotFound(t *testing.T) {
 	err := d.svc.ResetPassword(ctx, rawToken, "newpassword123")
 
 	assert.Error(t, err)
-	assert.Equal(t, lib.ErrorMessageInvalidResetToken, err)
+	assert.Equal(t, lib.ErrInvalidToken, err)
 }
 
 func TestResetPassword_UpdatePasswordError(t *testing.T) {

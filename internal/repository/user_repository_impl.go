@@ -269,6 +269,26 @@ func (r *userRepositoryImpl) UpdateAvatar(ctx context.Context, tx pgx.Tx, userId
 	return err
 }
 
+func (r *userRepositoryImpl) UpdateVerifiedEmail(ctx context.Context, tx pgx.Tx, userId string) error {
+	query := `
+        UPDATE users 
+        SET email_verified_at = $1, 
+            updated_at = $2 
+        WHERE user_id = $3 AND deleted_at IS NULL
+    `
+
+	now := time.Now()
+
+	var err error
+	if tx != nil {
+		_, err = tx.Exec(ctx, query, now, now, userId)
+	} else {
+		_, err = r.db.Database.Conn.Exec(ctx, query, now, now, userId)
+	}
+
+	return err
+}
+
 func (r *userRepositoryImpl) UpdateLastLogin(ctx context.Context, userId string, time time.Time) error {
 	query := `
 		UPDATE users

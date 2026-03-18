@@ -15,6 +15,7 @@ type UserRepository interface {
 	GetByUserId(ctx context.Context, userId string) (*model.User, error)
 	Create(ctx context.Context, tx pgx.Tx, user *model.User) error
 	Update(ctx context.Context, tx pgx.Tx, user *model.User) error
+	UpdateVerifiedEmail(ctx context.Context, tx pgx.Tx, userId string) error
 	UpdateAvatar(ctx context.Context, tx pgx.Tx, userId string, avatarUrl *string) error
 	UpdateLastLogin(ctx context.Context, userId string, time time.Time) error
 	UpdatePassword(ctx context.Context, userId string, password string) error

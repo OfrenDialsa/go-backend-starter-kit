@@ -15,17 +15,17 @@ type SessionRepository struct {
 	mock.Mock
 }
 
-// Create provides a mock function with given fields: ctx, session
-func (_m *SessionRepository) Create(ctx context.Context, session *model.UserSession) error {
-	ret := _m.Called(ctx, session)
+// Create provides a mock function with given fields: ctx, tx, session
+func (_m *SessionRepository) Create(ctx context.Context, tx pgx.Tx, session *model.UserSession) error {
+	ret := _m.Called(ctx, tx, session)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Create")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *model.UserSession) error); ok {
-		r0 = rf(ctx, session)
+	if rf, ok := ret.Get(0).(func(context.Context, pgx.Tx, *model.UserSession) error); ok {
+		r0 = rf(ctx, tx, session)
 	} else {
 		r0 = ret.Error(0)
 	}

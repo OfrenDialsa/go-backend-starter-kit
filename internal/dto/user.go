@@ -38,7 +38,7 @@ type UserProfileData struct {
 	Name            string     `json:"name"`
 	AvatarURL       *string    `json:"avatar_url"`
 	Status          string     `json:"status"`
-	EmailVerifiedAt time.Time  `json:"email_verified_at"`
+	EmailVerifiedAt *time.Time `json:"email_verified_at"`
 	LastLoginAt     *time.Time `json:"last_login_at"`
 	CreatedAt       time.Time  `json:"created_at"`
 }

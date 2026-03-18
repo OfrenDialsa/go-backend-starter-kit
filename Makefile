@@ -1,6 +1,6 @@
 .PHONY: help dev-up dev-down dev-build dev-restart dev-logs migrate-up migrate-down migrate-status build run clean mocks clean-mocks test monitor-up monitor-down monitor-logs monitor-restart
 
-DC = docker-compose --env-file env/.env -f docker-compose.yml
+DC = docker-compose -f docker-compose.yml
 DC_MONITORING = docker-compose -f docker/monitoring/docker-compose.yml
 DB_CONTAINER = postgres-starter
 DB_USER = postgres

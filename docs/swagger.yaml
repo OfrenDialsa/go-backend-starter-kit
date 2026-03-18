@@ -455,6 +455,35 @@ paths:
       summary: Reset user password
       tags:
       - Auth
+  /api/v1/auth/verify-email:
+    get:
+      consumes:
+      - application/json
+      description: Verifies the user's email address using a token sent via email.
+      parameters:
+      - description: Verification token
+        in: query
+        name: token
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Email verified successfully
+          schema:
+            $ref: '#/definitions/lib.APIResponse'
+        "400":
+          description: Invalid or expired token
+          schema:
+            $ref: '#/definitions/lib.HTTPError'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/lib.HTTPError'
+      summary: Verify user email
+      tags:
+      - Auth
   /api/v1/users/me:
     delete:
       consumes:

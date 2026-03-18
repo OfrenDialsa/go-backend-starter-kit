@@ -8,7 +8,7 @@ import (
 )
 
 type SessionRepository interface {
-	Create(ctx context.Context, session *model.UserSession) error
+	Create(ctx context.Context, tx pgx.Tx, session *model.UserSession) error
 	Update(ctx context.Context, session *model.UserSession) error
 	GetBySessionId(ctx context.Context, sessionId string) (*model.UserSession, error)
 	GetByToken(ctx context.Context, tokenHash string, tokenType string) (*model.UserSession, error)

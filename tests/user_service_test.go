@@ -77,7 +77,7 @@ func TestGetMe_UserNotFound(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Nil(t, resp)
-	assert.ErrorIs(t, err, lib.ErrorMessageUserNotFound)
+	assert.ErrorIs(t, err, lib.ErrUserNotFound)
 }
 
 func TestGetMe_DatabaseError(t *testing.T) {
@@ -234,7 +234,7 @@ func TestChangePassword_WeakPassword(t *testing.T) {
 	})
 
 	assert.Error(t, err)
-	assert.Equal(t, lib.ErrorMessageWeakPassword, err)
+	assert.Equal(t, lib.ErrWeakPassword, err)
 }
 
 // ===================== DeleteAccount Tests =====================
@@ -276,7 +276,7 @@ func TestDeleteAccount_InvalidPassword(t *testing.T) {
 	})
 
 	assert.Error(t, err)
-	assert.ErrorIs(t, err, lib.ErrorMessageInvalidPassword)
+	assert.ErrorIs(t, err, lib.ErrInvalidPassword)
 
 	d.txStarter.AssertNotCalled(t, "Begin", ctx)
 }
@@ -414,7 +414,7 @@ func TestDeleteAvatar_UserNotFound(t *testing.T) {
 
 	err := d.svc.DeleteAvatar(ctx, userId)
 
-	assert.ErrorIs(t, err, lib.ErrorMessageUserNotFound)
+	assert.ErrorIs(t, err, lib.ErrUserNotFound)
 }
 
 func TestDeleteAvatar_NoAvatar(t *testing.T) {

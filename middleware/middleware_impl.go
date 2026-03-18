@@ -7,7 +7,6 @@ import (
 	"github/OfrenDialsa/go-gin-starter/internal/repository"
 	"github/OfrenDialsa/go-gin-starter/lib"
 	"github/OfrenDialsa/go-gin-starter/utils"
-	"net/http"
 	"strings"
 	"time"
 
@@ -41,14 +40,14 @@ func (m *MiddlewareImpl) Validate(roles ...lib.Role) gin.HandlerFunc {
 
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
-			lib.RespondError(c, http.StatusUnauthorized, "Authorization header is required", nil)
+			lib.RespondError(c, lib.ErrUnauthorized)
 			c.Abort()
 			return
 		}
 
 		parts := strings.Split(authHeader, " ")
 		if len(parts) != 2 || parts[0] != "Bearer" {
-			lib.RespondError(c, http.StatusUnauthorized, "Invalid authorization format", nil)
+			lib.RespondError(c, lib.ErrInvalidAuthorizationFormat)
 			c.Abort()
 			return
 		}
@@ -57,21 +56,21 @@ func (m *MiddlewareImpl) Validate(roles ...lib.Role) gin.HandlerFunc {
 
 		claims, err := lib.ValidateToken(tokenString, m.env.JWT.SecretKey.Access)
 		if err != nil {
-			lib.RespondError(c, http.StatusUnauthorized, "Invalid or expired token", err)
+			lib.RespondError(c, lib.ErrInvalidAuthorizationFormat)
 			c.Abort()
 			return
 		}
 
 		session, err := m.sessionRepo.GetBySessionId(c.Request.Context(), claims.SessionId)
 		if err != nil || session == nil {
-			lib.RespondError(c, http.StatusUnauthorized, "Invalid or expired token", err)
+			lib.RespondError(c, lib.ErrInvalidAuthorizationFormat)
 			c.Abort()
 			return
 		}
 
 		if len(roles) > 0 {
 			if !utils.ContainsRole(lib.Role(claims.Role), roles) {
-				lib.RespondError(c, http.StatusForbidden, "Forbidden", nil)
+				lib.RespondError(c, lib.ErrForbidden)
 				c.Abort()
 				return
 			}
@@ -108,7 +107,7 @@ func (m *MiddlewareImpl) RateLimit(limit int, window time.Duration) gin.HandlerF
 		pipe.Expire(c, key, window)
 		_, err := pipe.Exec(c)
 		if err != nil {
-			lib.RespondError(c, http.StatusInternalServerError, "Rate limit check failed", err)
+			lib.RespondError(c, lib.ErrInternalServer)
 			c.Abort()
 			return
 		}
@@ -116,7 +115,7 @@ func (m *MiddlewareImpl) RateLimit(limit int, window time.Duration) gin.HandlerF
 		currentCount := countRes.Val()
 		if int(currentCount) >= limit {
 			c.Header("X-RateLimit-Limit", fmt.Sprintf("%d", limit))
-			lib.RespondError(c, http.StatusTooManyRequests, "Too many requests, please try again later", nil)
+			lib.RespondError(c, lib.ErrToooManyRequest)
 			c.Abort()
 			return
 		}
