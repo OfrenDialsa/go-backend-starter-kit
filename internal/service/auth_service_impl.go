@@ -9,6 +9,7 @@ import (
 	"github/OfrenDialsa/go-gin-starter/internal/repository"
 	"github/OfrenDialsa/go-gin-starter/lib"
 	"github/OfrenDialsa/go-gin-starter/utils"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -65,11 +66,12 @@ func (s *authServiceImpl) Register(ctx context.Context, userAgent, ipAddress str
 
 	now := time.Now()
 	userId := utils.Generate()
+	username := strings.ToLower(req.Username)
 
 	user := &model.User{
 		UserId:          userId,
 		Email:           req.Email,
-		Username:        req.Username,
+		Username:        username,
 		PasswordHash:    &hashedPassword,
 		Name:            req.Name,
 		Status:          "active",

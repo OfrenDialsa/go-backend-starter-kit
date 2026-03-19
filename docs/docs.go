@@ -24,67 +24,28 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
-        "/api/v1/auth/check-email": {
-            "get": {
-                "description": "Check if an email is already registered",
+        "/api/v1/auth/check-availability": {
+            "post": {
+                "description": "Check if an email or username is already registered/taken",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
                 "tags": [
                     "Auth"
                 ],
-                "summary": "Check email availability",
+                "summary": "Check email and username availability",
                 "parameters": [
                     {
-                        "type": "string",
-                        "description": "Email to check",
-                        "name": "email",
-                        "in": "query",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
+                        "description": "Email and/or username to check",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
                         "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/lib.APIResponse"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "type": "object",
-                                            "additionalProperties": {
-                                                "type": "boolean"
-                                            }
-                                        }
-                                    }
-                                }
-                            ]
+                            "$ref": "#/definitions/dto.CheckAvailabilityRequest"
                         }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/lib.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/auth/check-username": {
-            "get": {
-                "description": "Check if a username is already taken",
-                "tags": [
-                    "Auth"
-                ],
-                "summary": "Check username availability",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Username to check",
-                        "name": "username",
-                        "in": "query",
-                        "required": true
                     }
                 ],
                 "responses": {
@@ -817,6 +778,17 @@ const docTemplate = `{
                 }
             }
         },
+        "dto.CheckAvailabilityRequest": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
         "dto.ForgotPasswordRequest": {
             "type": "object",
             "required": [
@@ -873,6 +845,9 @@ const docTemplate = `{
         },
         "dto.RefreshTokenRequest": {
             "type": "object",
+            "required": [
+                "refresh_token"
+            ],
             "properties": {
                 "refresh_token": {
                     "type": "string"
@@ -916,7 +891,9 @@ const docTemplate = `{
                     "minLength": 8
                 },
                 "username": {
-                    "type": "string"
+                    "type": "string",
+                    "maxLength": 20,
+                    "minLength": 3
                 }
             }
         },
