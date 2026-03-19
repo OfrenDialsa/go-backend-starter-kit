@@ -10,6 +10,5 @@ type AuthHandler interface {
 	Logout(ctx *gin.Context)
 	ForgotPassword(ctx *gin.Context)
 	ResetPassword(ctx *gin.Context)
-	CheckEmail(ctx *gin.Context)
-	CheckUsername(ctx *gin.Context)
+	CheckAvailability(ctx *gin.Context)
 }

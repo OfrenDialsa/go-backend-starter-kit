@@ -2,7 +2,7 @@ package dto
 
 type RegisterRequest struct {
 	Email    string `json:"email" binding:"required,email"`
-	Username string `json:"username" binding:"required"`
+	Username string `json:"username" binding:"required,username,min=3,max=20"`
 	Name     string `json:"name" binding:"required"`
 	Password string `json:"password" binding:"required,min=8"`
 }
@@ -28,7 +28,7 @@ type LoginResponse struct {
 }
 
 type RefreshTokenRequest struct {
-	RefreshToken string `json:"refresh_token"`
+	RefreshToken string `json:"refresh_token" binding:"required"`
 }
 
 type RefreshTokenResponse struct {
@@ -54,4 +54,9 @@ type ResetPasswordRequest struct {
 
 type ForgotPasswordRequest struct {
 	Email string `json:"email" binding:"required,email"`
+}
+
+type CheckAvailabilityRequest struct {
+	Email    string `json:"email" binding:"omitempty,email"`
+	Username string `json:"username"`
 }

@@ -33,6 +33,12 @@ func getValidationMessage(e validator.FieldError) string {
 		return "Invalid email format"
 	case "min":
 		return e.Field() + " must be at least " + e.Param() + " characters"
+	case "max":
+		return e.Field() + " must be at most " + e.Param() + " characters"
+	case "alphanum":
+		return e.Field() + " must contain only letters and numbers"
+	case "username":
+		return e.Field() + " must only contain lowercase letters, numbers, dots, or underscores."
 	default:
 		return e.Field() + " is invalid"
 	}
