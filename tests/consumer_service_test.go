@@ -15,8 +15,9 @@ import (
 )
 
 type consumerTestDeps struct {
-	mailer *mocks.Mailer
-	svc    service.ConsumerService
+	mailer     *mocks.Mailer
+	logJobRepo mocks.LogJobRepository
+	svc        service.ConsumerService
 }
 
 func setupConsumerService(t *testing.T) *consumerTestDeps {
@@ -25,11 +26,13 @@ func setupConsumerService(t *testing.T) *consumerTestDeps {
 	mockMailer := mocks.NewMailer(t)
 
 	d := &consumerTestDeps{
-		mailer: mockMailer,
+		logJobRepo: *mocks.NewLogJobRepository(t),
+		mailer:     mockMailer,
 	}
 
 	d.svc = service.NewConsumerService(
 		testEnv(),
+		&d.logJobRepo,
 		d.mailer,
 	)
 

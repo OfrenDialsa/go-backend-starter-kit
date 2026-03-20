@@ -7,6 +7,7 @@ import (
 )
 
 type Repositories struct {
+	LogJob   repository.LogJobRepository
 	User     repository.UserRepository
 	Session  repository.SessionRepository
 	Auditlog repository.AuditLogRepository
@@ -14,6 +15,7 @@ type Repositories struct {
 
 func NewRepositories(env *config.EnvironmentVariable, db *database.WrapDB) Repositories {
 	return Repositories{
+		LogJob:   repository.NewLogJobRepository(db),
 		User:     repository.NewUserRepository(db),
 		Session:  repository.NewSessionRepository(db),
 		Auditlog: repository.NewAuditLogRepository(db),

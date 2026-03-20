@@ -25,25 +25,27 @@ func InitProducer(env *config.EnvironmentVariable) service.ProducerService {
 type NsqConsumer struct {
 	env             *config.EnvironmentVariable
 	Address         string
+	Repositories    api.Repositories
 	ConsumerService service.ConsumerService
 	ProducerService service.ProducerService
 }
 
 func InitConsumer(env *config.EnvironmentVariable, ps service.ProducerService, setup *api.Setup) error {
-	log.Info().Msg("[>] Init Email Consumer")
+	log.Info().Msg("[>] Init Process Email Consumer")
 
-	cs := service.NewConsumerService(env, setup.Mailer)
+	cs := service.NewConsumerService(env, setup.Repository.LogJob, setup.Mailer)
 
 	consumer := &NsqConsumer{
 		env:             env,
 		ConsumerService: cs,
 		Address:         env.MessageQueue.NSQ.Host,
 		ProducerService: ps,
+		Repositories:    setup.Repository,
 	}
 
 	err := consumer.ListenSendEmail()
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to start email listener")
+		log.Error().Err(err).Msg("Failed to start Process email listener")
 		return err
 	}
 
@@ -53,12 +55,12 @@ func InitConsumer(env *config.EnvironmentVariable, ps service.ProducerService, s
 func (c *NsqConsumer) ListenSendEmail() error {
 	log.Info().
 		Str("host", c.Address).
-		Msg("[>] Registering Email Worker Listener")
+		Msg("[>] Registering Process Email Worker Listener")
 
-	handler := consumer.NewEmailHandler(c.env, c.ConsumerService)
+	handler := consumer.NewProcessEmailHandler(c.env, c.ConsumerService, c.Repositories)
 
 	if err := handler.StartListen(); err != nil {
-		log.Error().Err(err).Msg("EmailHandler.StartListen failed")
+		log.Error().Err(err).Msg("ProcessEmailHandler.StartListen failed")
 		return err
 	}
 

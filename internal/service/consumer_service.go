@@ -7,5 +7,5 @@ import (
 )
 
 type ConsumerService interface {
-	ProcessEmail(ctx context.Context, message *nsq.Message) error
+	ProcessEmail(ctx context.Context, msg *nsq.Message) (err error)
 }

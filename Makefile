@@ -55,7 +55,7 @@ nsq-restart:
 
 monitor-up:
 	$(DC_MONITORING) up -d
-
+	
 monitor-down:
 	$(DC_MONITORING) down
 
@@ -77,16 +77,16 @@ dev-logs:
 
 migrate-create:
 	@if [ -z "$(name)" ]; then \
-		echo "=X= Error: 'name' is required. Usage: make migrate-create name=migrastion_name"; \
+		echo "=X= Error: 'name' is required. Usage: make migrate-create name=migration_name"; \
 		exit 1; \
 	fi
 	@go run cmd/migrate/main.go -action=create -name=$(name)
 
 migrate-up:
-	$(DC) exec $(API_CONTAINER) /app/migrate -action=up
+	$(DC) exec $(API_CONTAINER) go run cmd/migrate/main.go -action=up
 
 migrate-down:
-	$(DC) exec $(API_CONTAINER) /app/migrate -action=down
+	$(DC) exec $(API_CONTAINER) go run cmd/migrate/main.go -action=down
 
 migrate-status:
 	$(DC) exec $(API_CONTAINER) ls -l migrations

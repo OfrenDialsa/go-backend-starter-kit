@@ -230,7 +230,7 @@ func (u *userServiceImpl) ChangePassword(ctx context.Context, req dto.ChangePass
 		return fmt.Errorf("failed to hash password: %w", err)
 	}
 
-	err = u.userRepo.UpdatePassword(ctx, req.UserId, hashedPassword)
+	err = u.userRepo.UpdatePassword(ctx, nil, req.UserId, hashedPassword)
 	if err != nil {
 		return fmt.Errorf("failed to update password: %w", err)
 	}

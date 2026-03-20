@@ -269,7 +269,7 @@ func (r *userRepositoryImpl) UpdateAvatar(ctx context.Context, tx pgx.Tx, userId
 	return err
 }
 
-func (r *userRepositoryImpl) UpdateVerifiedEmail(ctx context.Context, tx pgx.Tx, userId string) error {
+func (r *userRepositoryImpl) MarkVerifiedEmail(ctx context.Context, tx pgx.Tx, userId string) error {
 	query := `
         UPDATE users 
         SET email_verified_at = $1, 
@@ -289,7 +289,7 @@ func (r *userRepositoryImpl) UpdateVerifiedEmail(ctx context.Context, tx pgx.Tx,
 	return err
 }
 
-func (r *userRepositoryImpl) UpdateLastLogin(ctx context.Context, userId string, time time.Time) error {
+func (r *userRepositoryImpl) MarkLastLogin(ctx context.Context, userId string, time time.Time) error {
 	query := `
 		UPDATE users
 		SET last_login_at = $1, updated_at = $2
@@ -299,14 +299,19 @@ func (r *userRepositoryImpl) UpdateLastLogin(ctx context.Context, userId string,
 	return err
 }
 
-func (r *userRepositoryImpl) UpdatePassword(ctx context.Context, userId string, passwordHash string) error {
+func (r *userRepositoryImpl) UpdatePassword(ctx context.Context, tx pgx.Tx, userId string, passwordHash string) error {
 	query := `
 		UPDATE users
 		SET password_hash = $1
 		WHERE user_id = $2 AND deleted_at IS NULL
 	`
+	var err error
+	if tx != nil {
+		_, err = tx.Exec(ctx, query, passwordHash, userId)
+	} else {
+		_, err = r.db.Database.Conn.Exec(ctx, query, passwordHash, userId)
+	}
 
-	_, err := r.db.Database.Conn.Exec(ctx, query, passwordHash, userId)
 	if err != nil {
 		return fmt.Errorf("failed to update user password: %w", err)
 	}

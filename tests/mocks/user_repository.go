@@ -229,6 +229,42 @@ func (_m *UserRepository) GetByUsername(ctx context.Context, username string) (*
 	return r0, r1
 }
 
+// MarkLastLogin provides a mock function with given fields: ctx, userId, _a2
+func (_m *UserRepository) MarkLastLogin(ctx context.Context, userId string, _a2 time.Time) error {
+	ret := _m.Called(ctx, userId, _a2)
+
+	if len(ret) == 0 {
+		panic("no return value specified for MarkLastLogin")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, time.Time) error); ok {
+		r0 = rf(ctx, userId, _a2)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MarkVerifiedEmail provides a mock function with given fields: ctx, tx, userId
+func (_m *UserRepository) MarkVerifiedEmail(ctx context.Context, tx pgx.Tx, userId string) error {
+	ret := _m.Called(ctx, tx, userId)
+
+	if len(ret) == 0 {
+		panic("no return value specified for MarkVerifiedEmail")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, pgx.Tx, string) error); ok {
+		r0 = rf(ctx, tx, userId)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // Update provides a mock function with given fields: ctx, tx, user
 func (_m *UserRepository) Update(ctx context.Context, tx pgx.Tx, user *model.User) error {
 	ret := _m.Called(ctx, tx, user)
@@ -265,53 +301,17 @@ func (_m *UserRepository) UpdateAvatar(ctx context.Context, tx pgx.Tx, userId st
 	return r0
 }
 
-// UpdateLastLogin provides a mock function with given fields: ctx, userId, _a2
-func (_m *UserRepository) UpdateLastLogin(ctx context.Context, userId string, _a2 time.Time) error {
-	ret := _m.Called(ctx, userId, _a2)
-
-	if len(ret) == 0 {
-		panic("no return value specified for UpdateLastLogin")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, time.Time) error); ok {
-		r0 = rf(ctx, userId, _a2)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// UpdatePassword provides a mock function with given fields: ctx, userId, password
-func (_m *UserRepository) UpdatePassword(ctx context.Context, userId string, password string) error {
-	ret := _m.Called(ctx, userId, password)
+// UpdatePassword provides a mock function with given fields: ctx, tx, userId, password
+func (_m *UserRepository) UpdatePassword(ctx context.Context, tx pgx.Tx, userId string, password string) error {
+	ret := _m.Called(ctx, tx, userId, password)
 
 	if len(ret) == 0 {
 		panic("no return value specified for UpdatePassword")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
-		r0 = rf(ctx, userId, password)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// UpdateVerifiedEmail provides a mock function with given fields: ctx, tx, userId
-func (_m *UserRepository) UpdateVerifiedEmail(ctx context.Context, tx pgx.Tx, userId string) error {
-	ret := _m.Called(ctx, tx, userId)
-
-	if len(ret) == 0 {
-		panic("no return value specified for UpdateVerifiedEmail")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, pgx.Tx, string) error); ok {
-		r0 = rf(ctx, tx, userId)
+	if rf, ok := ret.Get(0).(func(context.Context, pgx.Tx, string, string) error); ok {
+		r0 = rf(ctx, tx, userId, password)
 	} else {
 		r0 = ret.Error(0)
 	}

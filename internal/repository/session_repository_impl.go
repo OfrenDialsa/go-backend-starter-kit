@@ -175,12 +175,18 @@ func (r *sessionRepositoryImpl) RevokeAllUserSessions(ctx context.Context, tx pg
 	return nil
 }
 
-func (r *sessionRepositoryImpl) DeleteSession(ctx context.Context, sessionID string) error {
+func (r *sessionRepositoryImpl) DeleteSession(ctx context.Context, tx pgx.Tx, sessionId string) error {
 	query := `
 		DELETE FROM user_sessions
 		WHERE session_id = $1
 	`
-	_, err := r.db.Database.Conn.Exec(ctx, query, sessionID)
+	var err error
+	if tx != nil {
+		_, err = tx.Exec(ctx, query, sessionId)
+	} else {
+		_, err = r.db.Database.Conn.Exec(ctx, query, sessionId)
+	}
+
 	if err != nil {
 		return fmt.Errorf("failed to delete session: %w", err)
 	}

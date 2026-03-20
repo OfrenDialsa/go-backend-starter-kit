@@ -23,6 +23,7 @@ import (
 type authTestDeps struct {
 	userRepo    *mocks.UserRepository
 	sessionRepo *mocks.SessionRepository
+	logJobRepo  *mocks.LogJobRepository
 	txStarter   *mocks.TxStarter
 	mockTx      *mocks.Tx
 	producerSvc *mocks.ProducerService
@@ -53,6 +54,7 @@ func setupAuthService(t *testing.T) *authTestDeps {
 	d := &authTestDeps{
 		userRepo:    mocks.NewUserRepository(t),
 		sessionRepo: mocks.NewSessionRepository(t),
+		logJobRepo:  mocks.NewLogJobRepository(t),
 		txStarter:   mocks.NewTxStarter(t),
 		mockTx:      mocks.NewTx(t),
 		producerSvc: mocks.NewProducerService(t),
@@ -63,6 +65,7 @@ func setupAuthService(t *testing.T) *authTestDeps {
 		d.txStarter,
 		d.userRepo,
 		d.sessionRepo,
+		d.logJobRepo,
 		d.producerSvc,
 	)
 	return d
@@ -204,7 +207,7 @@ func TestVerifyEmail_Success(t *testing.T) {
 	d.sessionRepo.On("GetByToken", ctx, hashedToken, "verify_email").Return(session, nil)
 
 	d.userRepo.On("GetByUserId", ctx, userId).Return(user, nil)
-	d.userRepo.On("UpdateVerifiedEmail", ctx, nil, userId).Return(nil)
+	d.userRepo.On("MarkVerifiedEmail", ctx, nil, userId).Return(nil)
 	d.sessionRepo.On("DeleteSession", ctx, session.SessionId).Return(nil)
 
 	d.producerSvc.On("SendEmailRequest", mock.MatchedBy(func(p dto.EmailTaskPayload) bool {
@@ -260,7 +263,7 @@ func TestVerifyEmail_UpdateFailed(t *testing.T) {
 
 	d.userRepo.On("GetByUserId", ctx, userId).Return(user, nil)
 
-	d.userRepo.On("UpdateVerifiedEmail", ctx, nil, userId).
+	d.userRepo.On("MarkVerifiedEmail", ctx, nil, userId).
 		Return(errors.New("db error"))
 
 	err := d.svc.VerifyEmail(ctx, token)
@@ -309,7 +312,7 @@ func TestVerifyEmail_MailerError(t *testing.T) {
 
 	d.sessionRepo.On("GetByToken", ctx, hashedToken, "verify_email").Return(session, nil)
 	d.userRepo.On("GetByUserId", ctx, userId).Return(user, nil)
-	d.userRepo.On("UpdateVerifiedEmail", ctx, nil, userId).Return(nil)
+	d.userRepo.On("MarkVerifiedEmail", ctx, nil, userId).Return(nil)
 	d.sessionRepo.On("DeleteSession", ctx, session.SessionId).Return(nil)
 	d.producerSvc.On("SendEmailRequest", mock.Anything).
 		Return(errors.New("nsq publish error"))
@@ -344,7 +347,7 @@ func TestLogin_Success(t *testing.T) {
 
 	d.userRepo.On("GetByEmailOrUsername", ctx, "test@example.com", "test@example.com").Return(user, nil)
 	d.sessionRepo.On("Create", ctx, nil, mock.AnythingOfType("*model.UserSession")).Return(nil)
-	d.userRepo.On("UpdateLastLogin", ctx, user.UserId, mock.AnythingOfType("time.Time")).Return(nil)
+	d.userRepo.On("MarkLastLogin", ctx, user.UserId, mock.AnythingOfType("time.Time")).Return(nil)
 
 	resp, err := d.svc.Login(ctx, dto.LoginRequest{
 		Identifier: "test@example.com",

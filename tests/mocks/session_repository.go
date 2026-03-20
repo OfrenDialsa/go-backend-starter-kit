@@ -33,17 +33,17 @@ func (_m *SessionRepository) Create(ctx context.Context, tx pgx.Tx, session *mod
 	return r0
 }
 
-// DeleteSession provides a mock function with given fields: ctx, sessionId
-func (_m *SessionRepository) DeleteSession(ctx context.Context, sessionId string) error {
-	ret := _m.Called(ctx, sessionId)
+// DeleteSession provides a mock function with given fields: ctx, tx, sessionId
+func (_m *SessionRepository) DeleteSession(ctx context.Context, tx pgx.Tx, sessionId string) error {
+	ret := _m.Called(ctx, tx, sessionId)
 
 	if len(ret) == 0 {
 		panic("no return value specified for DeleteSession")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
-		r0 = rf(ctx, sessionId)
+	if rf, ok := ret.Get(0).(func(context.Context, pgx.Tx, string) error); ok {
+		r0 = rf(ctx, tx, sessionId)
 	} else {
 		r0 = ret.Error(0)
 	}
