@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -14,8 +15,9 @@ func PrometheusMiddleware() gin.HandlerFunc {
 		c.Next()
 
 		endpoint := c.FullPath()
-		if endpoint == "" {
-			endpoint = "unknown"
+		if endpoint == "/metrics" || strings.HasPrefix(endpoint, "/swagger") {
+			c.Next()
+			return
 		}
 
 		status := strconv.Itoa(c.Writer.Status())

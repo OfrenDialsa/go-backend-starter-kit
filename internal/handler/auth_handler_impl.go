@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
+	"github.com/rs/zerolog/log"
 )
 
 type AuthHandlerImpl struct {
@@ -98,6 +99,50 @@ func (h *AuthHandlerImpl) VerifyEmail(ctx *gin.Context) {
 	lib.RespondSuccess(ctx, http.StatusOK, "Email verified successfully", nil)
 }
 
+// ResendVerification handles resending the verification email
+// @Summary Resend verification email
+// @Description Resend verification email to user
+// @Tags Auth
+// @Accept json
+// @Produce json
+// @Param request body dto.ResendVerificationRequest true "Resend Verification Request"
+// @Success 200 {object} lib.APIResponse
+// @Failure 400 {object} lib.HTTPError
+// @Failure 429 {object} lib.HTTPError
+// @Failure 500 {object} lib.HTTPError
+// @Router /api/v1/auth/resend-verification [post]
+func (h *AuthHandlerImpl) ResendVerification(ctx *gin.Context) {
+	var req dto.ResendVerificationRequest
+
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		lib.RespondValidationError(ctx, http.StatusBadRequest, "Invalid request payload", parseValidationErrors(err))
+		return
+	}
+
+	if err := h.validator.Struct(&req); err != nil {
+		lib.RespondValidationError(ctx, http.StatusBadRequest, "Validation failed", parseValidationErrors(err))
+		return
+	}
+
+	ia := ctx.ClientIP()
+	ua := ctx.Request.UserAgent()
+
+	err := h.authService.ResendVerificationEmail(ctx.Request.Context(), ua, ia, &req)
+	if err != nil {
+		if appErr, ok := err.(*lib.AppError); ok {
+			lib.RespondError(ctx, appErr)
+			return
+		}
+
+		log.Error().Err(err).Msg("resend verification failed")
+		lib.RespondError(ctx, lib.ErrInternalServer)
+		return
+	}
+
+	// 4. Respond Success
+	lib.RespondSuccess(ctx, http.StatusOK, "Verification email has been resent successfully", nil)
+}
+
 // Login handles user login
 // @Summary Login user
 // @Description Login user using email or username
@@ -156,6 +201,11 @@ func (h *AuthHandlerImpl) RefreshToken(ctx *gin.Context) {
 
 	if err := ctx.ShouldBindJSON(&req); err != nil {
 		lib.RespondValidationError(ctx, http.StatusBadRequest, "Bad payload", parseValidationErrors(err))
+		return
+	}
+
+	if err := h.validator.Struct(&req); err != nil {
+		lib.RespondValidationError(ctx, http.StatusBadRequest, "Validation failed", parseValidationErrors(err))
 		return
 	}
 
@@ -224,6 +274,11 @@ func (h *AuthHandlerImpl) ResetPassword(ctx *gin.Context) {
 		return
 	}
 
+	if err := h.validator.Struct(&req); err != nil {
+		lib.RespondValidationError(ctx, http.StatusBadRequest, "Validation failed", parseValidationErrors(err))
+		return
+	}
+
 	err := h.authService.ResetPassword(ctx.Request.Context(), req.Token, req.NewPassword)
 	if err != nil {
 		if appErr, ok := err.(*lib.AppError); ok {
@@ -258,6 +313,11 @@ func (h *AuthHandlerImpl) ForgotPassword(ctx *gin.Context) {
 		return
 	}
 
+	if err := h.validator.Struct(&req); err != nil {
+		lib.RespondValidationError(ctx, http.StatusBadRequest, "Validation failed", parseValidationErrors(err))
+		return
+	}
+
 	ipAddress := ctx.ClientIP()
 	userAgent := ctx.Request.UserAgent()
 
@@ -270,54 +330,46 @@ func (h *AuthHandlerImpl) ForgotPassword(ctx *gin.Context) {
 	lib.RespondSuccess(ctx, http.StatusOK, lib.MsgPasswordForgotSuccess, nil)
 }
 
-// CheckEmail handles email availability check
-// @Summary Check email availability
-// @Description Check if an email is already registered
+// CheckAvailability handles checking availability of email and/or username
+// @Summary Check email and username availability
+// @Description Check if an email or username is already registered/taken
 // @Tags Auth
-// @Param email query string true "Email to check"
+// @Accept json
+// @Produce json
+// @Param request body dto.CheckAvailabilityRequest true "Email and/or username to check"
 // @Success 200 {object} lib.APIResponse{data=map[string]bool}
 // @Failure 400 {object} lib.HTTPError
-// @Router /api/v1/auth/check-email [get]
-func (h *AuthHandlerImpl) CheckEmail(ctx *gin.Context) {
-	email := ctx.Query("email")
-	if email == "" {
-		lib.RespondError(ctx, lib.ErrBadPayload)
+// @Router /api/v1/auth/check-availability [post]
+func (h *AuthHandlerImpl) CheckAvailability(ctx *gin.Context) {
+	var req dto.CheckAvailabilityRequest
+
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		lib.RespondValidationError(ctx, http.StatusBadRequest, "Bad payload", parseValidationErrors(err))
 		return
 	}
 
-	exists, err := h.authService.CheckEmail(ctx.Request.Context(), email)
-	if err != nil {
-		lib.RespondError(ctx, lib.ErrInternalServer)
+	if err := h.validator.Struct(&req); err != nil {
+		lib.RespondValidationError(ctx, http.StatusBadRequest, "Validation failed", parseValidationErrors(err))
 		return
 	}
 
-	lib.RespondSuccess(ctx, http.StatusOK, "Email availability checked", gin.H{
-		"exists": exists,
-	})
-}
+	result := gin.H{}
 
-// CheckUsername handles username availability check
-// @Summary Check username availability
-// @Description Check if a username is already taken
-// @Tags Auth
-// @Param username query string true "Username to check"
-// @Success 200 {object} lib.APIResponse{data=map[string]bool}
-// @Failure 400 {object} lib.HTTPError
-// @Router /api/v1/auth/check-username [get]
-func (h *AuthHandlerImpl) CheckUsername(ctx *gin.Context) {
-	username := ctx.Query("username")
-	if username == "" {
-		lib.RespondError(ctx, lib.ErrBadPayload)
-		return
+	if req.Email != "" {
+		exists, err := h.authService.CheckEmail(ctx, req.Email)
+		if err != nil {
+			lib.RespondError(ctx, lib.ErrInternalServer)
+		}
+		result["email_available"] = !exists
 	}
 
-	exists, err := h.authService.CheckUsername(ctx.Request.Context(), username)
-	if err != nil {
-		lib.RespondError(ctx, lib.ErrInternalServer)
-		return
+	if req.Username != "" {
+		exists, err := h.authService.CheckUsername(ctx, req.Username)
+		if err != nil {
+			lib.RespondError(ctx, lib.ErrInternalServer)
+		}
+		result["username_available"] = !exists
 	}
 
-	lib.RespondSuccess(ctx, http.StatusOK, "Username availability checked", gin.H{
-		"exists": exists,
-	})
+	lib.RespondSuccess(ctx, http.StatusOK, "Checked", result)
 }

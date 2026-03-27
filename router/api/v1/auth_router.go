@@ -11,9 +11,9 @@ import (
 func AuthRoutes(rg *gin.RouterGroup, h handler.AuthHandler, mw middleware.Middleware) {
 	auth := rg.Group("/auth")
 	{
-		auth.GET("/check-email", mw.RateLimit(5, time.Minute), h.CheckEmail)
-		auth.GET("/check-username", mw.RateLimit(5, time.Minute), h.CheckUsername)
+		auth.POST("/check-availability", mw.RateLimit(30, time.Minute), h.CheckAvailability)
 		auth.POST("/register", mw.RateLimit(10, time.Minute), h.Register)
+		auth.POST("/resend-verification", mw.RateLimit(10, time.Minute), h.ResendVerification)
 		auth.GET("/verify-email", mw.RateLimit(10, time.Minute), h.VerifyEmail)
 		auth.POST("/login", mw.RateLimit(10, time.Minute), h.Login)
 		auth.POST("/forgot-password", mw.RateLimit(3, 15*time.Minute), h.ForgotPassword)

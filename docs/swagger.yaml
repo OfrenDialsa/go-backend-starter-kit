@@ -13,6 +13,13 @@ definitions:
     - new
     - revoke_other_session
     type: object
+  dto.CheckAvailabilityRequest:
+    properties:
+      email:
+        type: string
+      username:
+        type: string
+    type: object
   dto.ForgotPasswordRequest:
     properties:
       email:
@@ -52,6 +59,8 @@ definitions:
     properties:
       refresh_token:
         type: string
+    required:
+    - refresh_token
     type: object
   dto.RefreshTokenResponse:
     properties:
@@ -74,6 +83,8 @@ definitions:
         minLength: 8
         type: string
       username:
+        maxLength: 20
+        minLength: 3
         type: string
     required:
     - email
@@ -85,6 +96,13 @@ definitions:
     properties:
       user:
         $ref: '#/definitions/dto.UserData'
+    type: object
+  dto.ResendVerificationRequest:
+    properties:
+      email:
+        type: string
+    required:
+    - email
     type: object
   dto.ResetPasswordRequest:
     properties:
@@ -187,23 +205,28 @@ info:
     email: support@swagger.io
     name: API Support
     url: http://www.swagger.io/support
-  description: Api starter template for lazy people
+  description: Api starter template by Nerodev
   license:
     name: Apache 2.0
     url: http://www.apache.org/licenses/LICENSE-2.0.html
   termsOfService: http://swagger.io/terms/
-  title: Go gin starter template API
+  title: Go Backend starter template API
   version: "1.0"
 paths:
-  /api/v1/auth/check-email:
-    get:
-      description: Check if an email is already registered
+  /api/v1/auth/check-availability:
+    post:
+      consumes:
+      - application/json
+      description: Check if an email or username is already registered/taken
       parameters:
-      - description: Email to check
-        in: query
-        name: email
+      - description: Email and/or username to check
+        in: body
+        name: request
         required: true
-        type: string
+        schema:
+          $ref: '#/definitions/dto.CheckAvailabilityRequest'
+      produces:
+      - application/json
       responses:
         "200":
           description: OK
@@ -220,35 +243,7 @@ paths:
           description: Bad Request
           schema:
             $ref: '#/definitions/lib.HTTPError'
-      summary: Check email availability
-      tags:
-      - Auth
-  /api/v1/auth/check-username:
-    get:
-      description: Check if a username is already taken
-      parameters:
-      - description: Username to check
-        in: query
-        name: username
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            allOf:
-            - $ref: '#/definitions/lib.APIResponse'
-            - properties:
-                data:
-                  additionalProperties:
-                    type: boolean
-                  type: object
-              type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/lib.HTTPError'
-      summary: Check username availability
+      summary: Check email and username availability
       tags:
       - Auth
   /api/v1/auth/forgot-password:
@@ -423,6 +418,40 @@ paths:
           schema:
             $ref: '#/definitions/lib.HTTPError'
       summary: Register a new user
+      tags:
+      - Auth
+  /api/v1/auth/resend-verification:
+    post:
+      consumes:
+      - application/json
+      description: Resend verification email to user
+      parameters:
+      - description: Resend Verification Request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.ResendVerificationRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/lib.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/lib.HTTPError'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/lib.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/lib.HTTPError'
+      summary: Resend verification email
       tags:
       - Auth
   /api/v1/auth/reset-password:

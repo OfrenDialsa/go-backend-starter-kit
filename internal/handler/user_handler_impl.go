@@ -84,8 +84,13 @@ func (u *UserHandlerImpl) UpdateProfile(ctx *gin.Context) {
 	}
 
 	var req dto.UpdateProfileRequest
-	if err := ctx.ShouldBind(&req); err != nil {
+	if err := ctx.ShouldBindJSON(&req); err != nil {
 		lib.RespondValidationError(ctx, http.StatusBadRequest, "Bad payload", parseValidationErrors(err))
+		return
+	}
+
+	if err := u.validator.Struct(&req); err != nil {
+		lib.RespondValidationError(ctx, http.StatusBadRequest, "Validation failed", parseValidationErrors(err))
 		return
 	}
 
@@ -190,6 +195,11 @@ func (u *UserHandlerImpl) ChangePassword(ctx *gin.Context) {
 		return
 	}
 
+	if err := u.validator.Struct(&req); err != nil {
+		lib.RespondValidationError(ctx, http.StatusBadRequest, "Validation failed", parseValidationErrors(err))
+		return
+	}
+
 	req.UserId = claims.UserId
 	req.SessionId = claims.SessionId
 	err := u.userService.ChangePassword(ctx, req)
@@ -231,6 +241,11 @@ func (u *UserHandlerImpl) DeleteAccount(ctx *gin.Context) {
 	var req dto.UserDeleteAccountRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
 		lib.RespondValidationError(ctx, http.StatusBadRequest, "Bad payload", parseValidationErrors(err))
+		return
+	}
+
+	if err := u.validator.Struct(&req); err != nil {
+		lib.RespondValidationError(ctx, http.StatusBadRequest, "Validation failed", parseValidationErrors(err))
 		return
 	}
 

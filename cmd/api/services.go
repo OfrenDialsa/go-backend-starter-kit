@@ -24,8 +24,8 @@ func NewServices(
 	producerSvc service.ProducerService,
 ) Services {
 	return Services{
-		Consumer: service.NewConsumerService(env, mailer),
-		Auth:     service.NewAuthService(env, db.Database.Conn, r.User, r.Session, producerSvc),
+		Consumer: service.NewConsumerService(env, r.LogJob, mailer),
+		Auth:     service.NewAuthService(env, db.Database.Conn, r.User, r.Session, r.LogJob, producerSvc),
 		User:     service.NewUserService(env, db.Database.Conn, r.User, r.Session, r.Auditlog, ext.Storage),
 	}
 }

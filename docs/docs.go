@@ -24,67 +24,28 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
-        "/api/v1/auth/check-email": {
-            "get": {
-                "description": "Check if an email is already registered",
+        "/api/v1/auth/check-availability": {
+            "post": {
+                "description": "Check if an email or username is already registered/taken",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
                 "tags": [
                     "Auth"
                 ],
-                "summary": "Check email availability",
+                "summary": "Check email and username availability",
                 "parameters": [
                     {
-                        "type": "string",
-                        "description": "Email to check",
-                        "name": "email",
-                        "in": "query",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
+                        "description": "Email and/or username to check",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
                         "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/lib.APIResponse"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "type": "object",
-                                            "additionalProperties": {
-                                                "type": "boolean"
-                                            }
-                                        }
-                                    }
-                                }
-                            ]
+                            "$ref": "#/definitions/dto.CheckAvailabilityRequest"
                         }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/lib.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/auth/check-username": {
-            "get": {
-                "description": "Check if a username is already taken",
-                "tags": [
-                    "Auth"
-                ],
-                "summary": "Check username availability",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Username to check",
-                        "name": "username",
-                        "in": "query",
-                        "required": true
                     }
                 ],
                 "responses": {
@@ -389,6 +350,58 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/lib.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/lib.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/resend-verification": {
+            "post": {
+                "description": "Resend verification email to user",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Resend verification email",
+                "parameters": [
+                    {
+                        "description": "Resend Verification Request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/dto.ResendVerificationRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/lib.APIResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/lib.HTTPError"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
                         "schema": {
                             "$ref": "#/definitions/lib.HTTPError"
                         }
@@ -817,6 +830,17 @@ const docTemplate = `{
                 }
             }
         },
+        "dto.CheckAvailabilityRequest": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
         "dto.ForgotPasswordRequest": {
             "type": "object",
             "required": [
@@ -873,6 +897,9 @@ const docTemplate = `{
         },
         "dto.RefreshTokenRequest": {
             "type": "object",
+            "required": [
+                "refresh_token"
+            ],
             "properties": {
                 "refresh_token": {
                     "type": "string"
@@ -916,7 +943,9 @@ const docTemplate = `{
                     "minLength": 8
                 },
                 "username": {
-                    "type": "string"
+                    "type": "string",
+                    "maxLength": 20,
+                    "minLength": 3
                 }
             }
         },
@@ -925,6 +954,17 @@ const docTemplate = `{
             "properties": {
                 "user": {
                     "$ref": "#/definitions/dto.UserData"
+                }
+            }
+        },
+        "dto.ResendVerificationRequest": {
+            "type": "object",
+            "required": [
+                "email"
+            ],
+            "properties": {
+                "email": {
+                    "type": "string"
                 }
             }
         },
@@ -1088,8 +1128,8 @@ var SwaggerInfo = &swag.Spec{
 	Host:             "localhost:8080",
 	BasePath:         "/",
 	Schemes:          []string{},
-	Title:            "Go gin starter template API",
-	Description:      "Api starter template for lazy people",
+	Title:            "Go Backend starter template API",
+	Description:      "Api starter template by Nerodev",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",
