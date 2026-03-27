@@ -17,9 +17,9 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// @title Go gin starter template API
+// @title Go Backend starter template API
 // @version 1.0
-// @description Api starter template for lazy people
+// @description Api starter template by Nerodev
 // @termsOfService http://swagger.io/terms/
 
 // @contact.name API Support

@@ -13,17 +13,17 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
-type producerTestDeps struct {
+type producerServiceTestDeps struct {
 	nsqClient *mocks.NsqClient
 	svc       service.ProducerService
 }
 
-func setupProducerService(t *testing.T) *producerTestDeps {
+func setupProducerService(t *testing.T) *producerServiceTestDeps {
 	t.Helper()
 
 	mockNsq := mocks.NewNsqClient(t)
 
-	d := &producerTestDeps{
+	d := &producerServiceTestDeps{
 		nsqClient: mockNsq,
 	}
 
@@ -35,57 +35,71 @@ func setupProducerService(t *testing.T) *producerTestDeps {
 	return d
 }
 
-// ===================== SendEmailRequest Tests =====================
+func TestSendEmailRequest(t *testing.T) {
+	topic := "test-email-topic"
 
-func TestSendEmailRequest_Success(t *testing.T) {
-	d := setupProducerService(t)
-
-	payload := dto.EmailTaskPayload{
-		Type:  "verify_email",
-		Email: "ofren.dialsa@example.com",
-		Name:  "Ofren Dialsa",
-		Link:  "https://example.com/verify",
+	tests := []struct {
+		name      string
+		payload   dto.EmailTaskPayload
+		setupMock func(d *producerServiceTestDeps)
+		wantErr   bool
+	}{
+		{
+			name: "Success_PublishVerifyEmail",
+			payload: dto.EmailTaskPayload{
+				Type:  "verify_email",
+				Email: "ofren.dialsa@example.com",
+				Name:  "Ofren Dialsa",
+				Link:  "https://example.com/verify",
+			},
+			setupMock: func(d *producerServiceTestDeps) {
+				d.nsqClient.On("Publish", topic, mock.MatchedBy(func(body []byte) bool {
+					var p dto.EmailTaskPayload
+					err := json.Unmarshal(body, &p)
+					return err == nil && p.Email == "ofren.dialsa@example.com" && p.Type == "verify_email"
+				})).Return(nil)
+			},
+			wantErr: false,
+		},
+		{
+			name: "Success_PublishForgotPassword",
+			payload: dto.EmailTaskPayload{
+				Type:  "forgot_password",
+				Email: "user@example.com",
+			},
+			setupMock: func(d *producerServiceTestDeps) {
+				d.nsqClient.On("Publish", topic, mock.Anything).Return(nil)
+			},
+			wantErr: false,
+		},
+		{
+			name: "Error_NSQConnectionRefused",
+			payload: dto.EmailTaskPayload{
+				Type: "any_type",
+			},
+			setupMock: func(d *producerServiceTestDeps) {
+				d.nsqClient.On("Publish", topic, mock.Anything).
+					Return(errors.New("nsqd: connection refused"))
+			},
+			wantErr: true,
+		},
 	}
 
-	d.nsqClient.On("Publish", "test-email-topic", mock.MatchedBy(func(body []byte) bool {
-		var p dto.EmailTaskPayload
-		err := json.Unmarshal(body, &p)
-		return err == nil && p.Email == payload.Email && p.Type == payload.Type
-	})).Return(nil)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := setupProducerService(t)
+			tt.setupMock(d)
 
-	err := d.svc.SendEmailRequest(payload)
+			err := d.svc.SendEmailRequest(tt.payload)
 
-	assert.NoError(t, err)
-	d.nsqClient.AssertExpectations(t)
-}
+			if tt.wantErr {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "nsqd: connection refused")
+			} else {
+				assert.NoError(t, err)
+			}
 
-func TestSendEmailRequest_PublishError(t *testing.T) {
-	d := setupProducerService(t)
-
-	payload := dto.EmailTaskPayload{
-		Type:  "forgot_password",
-		Email: "user@example.com",
+			d.nsqClient.AssertExpectations(t)
+		})
 	}
-
-	d.nsqClient.On("Publish", "test-email-topic", mock.Anything).
-		Return(errors.New("nsqd: connection refused"))
-
-	err := d.svc.SendEmailRequest(payload)
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "nsqd: connection refused")
-	d.nsqClient.AssertExpectations(t)
-}
-
-func TestSendEmailRequest_MarshalCheck(t *testing.T) {
-	d := setupProducerService(t)
-
-	payload := dto.EmailTaskPayload{}
-
-	d.nsqClient.On("Publish", mock.Anything, mock.Anything).Return(nil)
-
-	err := d.svc.SendEmailRequest(payload)
-
-	assert.NoError(t, err)
-	d.nsqClient.AssertExpectations(t)
 }

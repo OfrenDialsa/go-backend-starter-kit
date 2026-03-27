@@ -3,6 +3,7 @@
 DC = docker-compose -f docker-compose.yml
 DC_MONITORING = docker-compose -f docker/monitoring/docker-compose.yml
 DC_NSQ = docker-compose -f docker/nsq/docker-compose.yml
+DC_MINIO = docker-compose -f docker/minio/docker-compose.yml
 DB_CONTAINER = postgres-starter
 DB_USER = postgres
 DB_NAME = go-gin-starter
@@ -14,6 +15,9 @@ SERVICE_DIR := internal/service
 STORAGE_DIR := external/storage
 MOCK_DIR := tests/mocks
 MOCK_PKG := mocks
+
+COVERAGE_FILE = coverage.out
+HTML_FILE = coverage.html
 
 FEATURE_NAME=$(name)
 
@@ -52,6 +56,18 @@ nsq-logs:
 
 nsq-restart:
 	$(DC_NSQ) restart
+
+minio-up:
+	$(DC_MINIO) up -d
+
+minio-down:
+	$(DC_MINIO) down
+
+minio-logs:
+	$(DC_MINIO) logs -f
+
+minio-restart:
+	$(DC_MINIO) restart
 
 monitor-up:
 	$(DC_MONITORING) up -d
@@ -124,8 +140,20 @@ mocks:
 	@echo "✅ Done generating mocks"
 
 test:
-	go test -v -coverprofile=coverage.out -covermode=atomic -coverpkg=./internal/service/... ./tests/...
-	@go tool cover -func=coverage.out | tail -1
+	@echo "Running tests and generating coverage profile..."
+	go test -v -coverprofile=$(COVERAGE_FILE) -covermode=atomic -coverpkg=./internal/service/... ./tests/...
+	@go tool cover -func=$(COVERAGE_FILE) | tail -1
+
+cover-html: test
+	@echo "Generating HTML coverage report..."
+	go tool cover -html=$(COVERAGE_FILE) -o $(HTML_FILE)
+	@echo "Coverage report generated: $(HTML_FILE)"
+
+cover-open: cover-html
+	@open $(HTML_FILE) || xdg-open $(HTML_FILE) || start $(HTML_FILE)
+
+clean-cover:
+	rm -f $(COVERAGE_FILE) $(HTML_FILE)
 
 create-repo:
 	@chmod +x script/create_repository.sh

@@ -76,6 +76,12 @@ var (
 		HTTPStatus: http.StatusConflict,
 	}
 
+	ErrEmailAlreadyVerified = &AppError{
+		Code:       "EMAIL_ALREADY_Verified",
+		Message:    "Email already verified",
+		HTTPStatus: http.StatusConflict,
+	}
+
 	ErrEmailNotVerified = &AppError{
 		Code:       "EMAIL_NOT_VERIFIED",
 		Message:    "Please check your email to verify your account",

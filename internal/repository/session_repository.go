@@ -13,6 +13,7 @@ type SessionRepository interface {
 	GetBySessionId(ctx context.Context, sessionId string) (*model.UserSession, error)
 	GetByToken(ctx context.Context, tokenHash string, tokenType string) (*model.UserSession, error)
 	DeleteSession(ctx context.Context, tx pgx.Tx, sessionId string) error
+	DeleteByType(ctx context.Context, tx pgx.Tx, userId string, sessionType string) error
 	RevokeBySessionId(ctx context.Context, sessionID string) error
 	RevokeByToken(ctx context.Context, tokenHash string) error
 	RevokeAllUserSessions(ctx context.Context, tx pgx.Tx, userId string) error

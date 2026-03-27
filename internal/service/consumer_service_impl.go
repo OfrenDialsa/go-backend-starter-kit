@@ -99,9 +99,16 @@ func (s *consumerServiceImpl) ProcessEmail(ctx context.Context, msg *nsq.Message
 
 	if err != nil {
 		if jobId != "" {
-			if msg.Attempts > 5 {
-				log.Warn().Str("job_id", jobId).Msg("max attempts reached, giving up after 5 attempts")
-				s.logJobRepo.MarkAsFailed(ctx, nil, jobId, "max retry reached, giving up after 5 attempts")
+			isPermanentError := payload.Email == ""
+
+			if isPermanentError || msg.Attempts >= 5 {
+				reason := "max retry reached"
+				if isPermanentError {
+					reason = "invalid recipient email (permanent error)"
+				}
+
+				log.Warn().Str("job_id", jobId).Msg(reason)
+				s.logJobRepo.MarkAsFailed(ctx, nil, jobId, reason)
 				return nil
 			}
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
+	"github.com/rs/zerolog/log"
 )
 
 type AuthHandlerImpl struct {
@@ -96,6 +97,50 @@ func (h *AuthHandlerImpl) VerifyEmail(ctx *gin.Context) {
 	}
 
 	lib.RespondSuccess(ctx, http.StatusOK, "Email verified successfully", nil)
+}
+
+// ResendVerification handles resending the verification email
+// @Summary Resend verification email
+// @Description Resend verification email to user
+// @Tags Auth
+// @Accept json
+// @Produce json
+// @Param request body dto.ResendVerificationRequest true "Resend Verification Request"
+// @Success 200 {object} lib.APIResponse
+// @Failure 400 {object} lib.HTTPError
+// @Failure 429 {object} lib.HTTPError
+// @Failure 500 {object} lib.HTTPError
+// @Router /api/v1/auth/resend-verification [post]
+func (h *AuthHandlerImpl) ResendVerification(ctx *gin.Context) {
+	var req dto.ResendVerificationRequest
+
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		lib.RespondValidationError(ctx, http.StatusBadRequest, "Invalid request payload", parseValidationErrors(err))
+		return
+	}
+
+	if err := h.validator.Struct(&req); err != nil {
+		lib.RespondValidationError(ctx, http.StatusBadRequest, "Validation failed", parseValidationErrors(err))
+		return
+	}
+
+	ia := ctx.ClientIP()
+	ua := ctx.Request.UserAgent()
+
+	err := h.authService.ResendVerificationEmail(ctx.Request.Context(), ua, ia, &req)
+	if err != nil {
+		if appErr, ok := err.(*lib.AppError); ok {
+			lib.RespondError(ctx, appErr)
+			return
+		}
+
+		log.Error().Err(err).Msg("resend verification failed")
+		lib.RespondError(ctx, lib.ErrInternalServer)
+		return
+	}
+
+	// 4. Respond Success
+	lib.RespondSuccess(ctx, http.StatusOK, "Verification email has been resent successfully", nil)
 }
 
 // Login handles user login

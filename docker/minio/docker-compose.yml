@@ -28,8 +28,8 @@ services:
     entrypoint: >
       /bin/sh -c "
       /usr/bin/mc alias set local http://minio:9000 admin password123;
-      /usr/bin/mc mb local/go-gin-starter || true;
-      /usr/bin/mc anonymous set download local/go-gin-starter;
+      /usr/bin/mc mb local/go-backend-starter || true;
+      /usr/bin/mc anonymous set download local/go-backend-starter;
       exit 0;
       "
 

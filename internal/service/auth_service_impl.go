@@ -181,6 +181,102 @@ func (s *authServiceImpl) Register(ctx context.Context, userAgent, ipAddress str
 	}, nil
 }
 
+func (s *authServiceImpl) ResendVerificationEmail(ctx context.Context, userAgent, ipAddress string, req *dto.ResendVerificationRequest) (err error) {
+	start := time.Now()
+	defer func() {
+		status := "success"
+		if err != nil {
+			status = "failed"
+		}
+		metrics.TrackAuth("resend_verification", status, time.Since(start))
+	}()
+
+	user, err := s.userRepo.GetByEmail(ctx, req.Email)
+	if err != nil {
+		return fmt.Errorf("failed to get user: %w", err)
+	}
+	if user == nil {
+		return lib.ErrUserNotFound
+	}
+
+	if user.EmailVerifiedAt != nil {
+		return lib.ErrEmailAlreadyVerified
+	}
+
+	tx, err := s.txStarter.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	err = s.sessionRepo.DeleteByType(ctx, tx, user.UserId, "verify_email")
+	if err != nil {
+		return fmt.Errorf("failed to cleanup old verification tokens: %w", err)
+	}
+
+	verifToken, err := utils.GenerateToken()
+	if err != nil {
+		return fmt.Errorf("failed to generate token: %w", err)
+	}
+	hashedToken := utils.HashTokenSHA256(verifToken)
+	expiresAt := time.Now().Add(time.Hour)
+
+	session := &model.UserSession{
+		SessionId: utils.GenerateULID(),
+		UserId:    user.UserId,
+		TokenHash: hashedToken,
+		ExpiresAt: expiresAt,
+		IPAddress: ipAddress,
+		UserAgent: userAgent,
+		Type:      "verify_email",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	err = s.sessionRepo.Create(ctx, tx, session)
+	if err != nil {
+		return fmt.Errorf("failed to create verification session: %w", err)
+	}
+
+	verifLink := fmt.Sprintf("%s?token=%s", s.env.External.VerifyEmailURL, verifToken)
+	jobId := utils.GenerateULID()
+
+	mailPayload := dto.EmailTaskPayload{
+		JobId: jobId,
+		Type:  "verify_email",
+		Email: user.Email,
+		Name:  user.Name,
+		Link:  verifLink,
+	}
+
+	payloadBytes, _ := json.Marshal(mailPayload)
+	job := &model.LogJob{
+		JobId:       jobId,
+		Type:        mailPayload.Type,
+		Payload:     payloadBytes,
+		Status:      "pending",
+		ScheduledAt: time.Now(),
+		CreatedAt:   time.Now(),
+	}
+
+	err = s.logJobRepo.Create(ctx, tx, job)
+	if err != nil {
+		return fmt.Errorf("failed to create log job: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	err = s.producerSvc.SendEmailRequest(mailPayload)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to publish resend email to NSQ")
+		s.logJobRepo.MarkAsFailed(ctx, nil, jobId, err.Error())
+	}
+
+	return nil
+}
+
 func (s *authServiceImpl) VerifyEmail(ctx context.Context, token string) error {
 	hashedToken := utils.HashTokenSHA256(token)
 
