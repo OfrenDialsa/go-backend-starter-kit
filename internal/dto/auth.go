@@ -19,6 +19,10 @@ type RegisterResponse struct {
 	User UserData `json:"user"`
 }
 
+type ResendVerificationRequest struct {
+	Email string `json:"email" validate:"required,email"`
+}
+
 type LoginResponse struct {
 	AccessToken  string   `json:"access_token"`
 	RefreshToken string   `json:"refresh_token"`

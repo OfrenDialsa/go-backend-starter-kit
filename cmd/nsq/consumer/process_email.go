@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github/OfrenDialsa/go-gin-starter/cmd/api"
 	"github/OfrenDialsa/go-gin-starter/config"
 	"github/OfrenDialsa/go-gin-starter/internal/service"
 
@@ -11,22 +12,25 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-type EmailHandler struct {
+type ProcessEmailHandler struct {
 	Env             *config.EnvironmentVariable
 	ConsumerService service.ConsumerService
+	Repository      api.Repositories
 }
 
-func NewEmailHandler(
+func NewProcessEmailHandler(
 	env *config.EnvironmentVariable,
 	cs service.ConsumerService,
-) *EmailHandler {
-	return &EmailHandler{
+	r api.Repositories,
+) *ProcessEmailHandler {
+	return &ProcessEmailHandler{
 		Env:             env,
 		ConsumerService: cs,
+		Repository:      r,
 	}
 }
 
-func (h *EmailHandler) StartListen() error {
+func (h *ProcessEmailHandler) StartListen() error {
 	configNSQ := nsq.NewConfig()
 
 	topic := h.Env.MessageQueue.NSQ.Consumer.Email.Topic.SendEmail.TopicName
@@ -58,7 +62,7 @@ func (h *EmailHandler) StartListen() error {
 	return nil
 }
 
-func (h *EmailHandler) HandleMessage(message *nsq.Message) error {
+func (h *ProcessEmailHandler) HandleMessage(message *nsq.Message) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
 	defer cancel()
 

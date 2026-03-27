@@ -10,7 +10,7 @@ CREATE TABLE users (
     role user_role NOT NULL DEFAULT 'user',
     password_hash VARCHAR,
     status VARCHAR DEFAULT 'active',
-    email_verified_at TIMESTAMP NOT NULL,
+    email_verified_at TIMESTAMP,
     last_login_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW(),

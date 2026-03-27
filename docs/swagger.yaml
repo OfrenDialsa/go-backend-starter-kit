@@ -97,6 +97,13 @@ definitions:
       user:
         $ref: '#/definitions/dto.UserData'
     type: object
+  dto.ResendVerificationRequest:
+    properties:
+      email:
+        type: string
+    required:
+    - email
+    type: object
   dto.ResetPasswordRequest:
     properties:
       new_password:
@@ -198,12 +205,12 @@ info:
     email: support@swagger.io
     name: API Support
     url: http://www.swagger.io/support
-  description: Api starter template for lazy people
+  description: Api starter template by Nerodev
   license:
     name: Apache 2.0
     url: http://www.apache.org/licenses/LICENSE-2.0.html
   termsOfService: http://swagger.io/terms/
-  title: Go gin starter template API
+  title: Go Backend starter template API
   version: "1.0"
 paths:
   /api/v1/auth/check-availability:
@@ -411,6 +418,40 @@ paths:
           schema:
             $ref: '#/definitions/lib.HTTPError'
       summary: Register a new user
+      tags:
+      - Auth
+  /api/v1/auth/resend-verification:
+    post:
+      consumes:
+      - application/json
+      description: Resend verification email to user
+      parameters:
+      - description: Resend Verification Request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.ResendVerificationRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/lib.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/lib.HTTPError'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/lib.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/lib.HTTPError'
+      summary: Resend verification email
       tags:
       - Auth
   /api/v1/auth/reset-password:

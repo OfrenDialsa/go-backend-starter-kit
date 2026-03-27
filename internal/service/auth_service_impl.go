@@ -2,9 +2,11 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github/OfrenDialsa/go-gin-starter/config"
 	"github/OfrenDialsa/go-gin-starter/internal/dto"
+	"github/OfrenDialsa/go-gin-starter/internal/metrics"
 	"github/OfrenDialsa/go-gin-starter/internal/model"
 	"github/OfrenDialsa/go-gin-starter/internal/repository"
 	"github/OfrenDialsa/go-gin-starter/lib"
@@ -20,6 +22,7 @@ type authServiceImpl struct {
 	txStarter   TxStarter
 	userRepo    repository.UserRepository
 	sessionRepo repository.SessionRepository
+	logJobRepo  repository.LogJobRepository
 	producerSvc ProducerService
 }
 
@@ -28,6 +31,7 @@ func NewAuthService(
 	txStarter TxStarter,
 	userRepo repository.UserRepository,
 	sessionRepo repository.SessionRepository,
+	logJobRepo repository.LogJobRepository,
 	producerSvc ProducerService,
 ) AuthService {
 	return &authServiceImpl{
@@ -35,11 +39,21 @@ func NewAuthService(
 		txStarter:   txStarter,
 		userRepo:    userRepo,
 		sessionRepo: sessionRepo,
+		logJobRepo:  logJobRepo,
 		producerSvc: producerSvc,
 	}
 }
 
-func (s *authServiceImpl) Register(ctx context.Context, userAgent, ipAddress string, req *dto.RegisterRequest) (*dto.RegisterResponse, error) {
+func (s *authServiceImpl) Register(ctx context.Context, userAgent, ipAddress string, req *dto.RegisterRequest) (res *dto.RegisterResponse, err error) {
+	start := time.Now()
+	defer func() {
+		status := "success"
+		if err != nil {
+			status = "failed"
+		}
+		metrics.TrackAuth("login", status, time.Since(start))
+	}()
+
 	existingUser, err := s.userRepo.GetByEmailOrUsername(ctx, req.Email, req.Username)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check email existence: %w", err)
@@ -65,7 +79,7 @@ func (s *authServiceImpl) Register(ctx context.Context, userAgent, ipAddress str
 	defer tx.Rollback(ctx)
 
 	now := time.Now()
-	userId := utils.Generate()
+	userId := utils.GenerateULID()
 	username := strings.ToLower(req.Username)
 
 	user := &model.User{
@@ -96,7 +110,7 @@ func (s *authServiceImpl) Register(ctx context.Context, userAgent, ipAddress str
 	expiresAt := time.Now().Add(time.Hour)
 
 	session := &model.UserSession{
-		SessionId: utils.Generate(),
+		SessionId: utils.GenerateULID(),
 		UserId:    user.UserId,
 		TokenHash: hashedToken,
 		ExpiresAt: expiresAt,
@@ -114,21 +128,45 @@ func (s *authServiceImpl) Register(ctx context.Context, userAgent, ipAddress str
 
 	verifLink := fmt.Sprintf("%s?token=%s", s.env.External.VerifyEmailURL, verifToken)
 
+	jobId := utils.GenerateULID()
+
 	mailPayload := dto.EmailTaskPayload{
+		JobId: jobId,
 		Type:  "verify_email",
 		Email: user.Email,
 		Name:  user.Name,
 		Link:  verifLink,
 	}
 
-	err = s.producerSvc.SendEmailRequest(mailPayload)
+	payloadBytes, err := json.Marshal(mailPayload)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to publish email to NSQ")
-		return nil, fmt.Errorf("failed to queue email: %w", err)
+		return nil, fmt.Errorf("failed to marshal json: %w", err)
+	}
+
+	job := &model.LogJob{
+		JobId:       mailPayload.JobId,
+		Type:        mailPayload.Type,
+		Payload:     payloadBytes,
+		Status:      "pending",
+		RetryCount:  0,
+		ScheduledAt: time.Now(),
+		CreatedAt:   time.Now(),
+	}
+
+	err = s.logJobRepo.Create(ctx, tx, job)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create log job: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	err = s.producerSvc.SendEmailRequest(mailPayload)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to publish email to NSQ")
+		s.logJobRepo.MarkAsFailed(ctx, nil, job.JobId, err.Error())
+		return nil, fmt.Errorf("failed to queue email: %w", err)
 	}
 
 	return &dto.RegisterResponse{
@@ -143,6 +181,102 @@ func (s *authServiceImpl) Register(ctx context.Context, userAgent, ipAddress str
 	}, nil
 }
 
+func (s *authServiceImpl) ResendVerificationEmail(ctx context.Context, userAgent, ipAddress string, req *dto.ResendVerificationRequest) (err error) {
+	start := time.Now()
+	defer func() {
+		status := "success"
+		if err != nil {
+			status = "failed"
+		}
+		metrics.TrackAuth("resend_verification", status, time.Since(start))
+	}()
+
+	user, err := s.userRepo.GetByEmail(ctx, req.Email)
+	if err != nil {
+		return fmt.Errorf("failed to get user: %w", err)
+	}
+	if user == nil {
+		return lib.ErrUserNotFound
+	}
+
+	if user.EmailVerifiedAt != nil {
+		return lib.ErrEmailAlreadyVerified
+	}
+
+	tx, err := s.txStarter.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	err = s.sessionRepo.DeleteByType(ctx, tx, user.UserId, "verify_email")
+	if err != nil {
+		return fmt.Errorf("failed to cleanup old verification tokens: %w", err)
+	}
+
+	verifToken, err := utils.GenerateToken()
+	if err != nil {
+		return fmt.Errorf("failed to generate token: %w", err)
+	}
+	hashedToken := utils.HashTokenSHA256(verifToken)
+	expiresAt := time.Now().Add(time.Hour)
+
+	session := &model.UserSession{
+		SessionId: utils.GenerateULID(),
+		UserId:    user.UserId,
+		TokenHash: hashedToken,
+		ExpiresAt: expiresAt,
+		IPAddress: ipAddress,
+		UserAgent: userAgent,
+		Type:      "verify_email",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	err = s.sessionRepo.Create(ctx, tx, session)
+	if err != nil {
+		return fmt.Errorf("failed to create verification session: %w", err)
+	}
+
+	verifLink := fmt.Sprintf("%s?token=%s", s.env.External.VerifyEmailURL, verifToken)
+	jobId := utils.GenerateULID()
+
+	mailPayload := dto.EmailTaskPayload{
+		JobId: jobId,
+		Type:  "verify_email",
+		Email: user.Email,
+		Name:  user.Name,
+		Link:  verifLink,
+	}
+
+	payloadBytes, _ := json.Marshal(mailPayload)
+	job := &model.LogJob{
+		JobId:       jobId,
+		Type:        mailPayload.Type,
+		Payload:     payloadBytes,
+		Status:      "pending",
+		ScheduledAt: time.Now(),
+		CreatedAt:   time.Now(),
+	}
+
+	err = s.logJobRepo.Create(ctx, tx, job)
+	if err != nil {
+		return fmt.Errorf("failed to create log job: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	err = s.producerSvc.SendEmailRequest(mailPayload)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to publish resend email to NSQ")
+		s.logJobRepo.MarkAsFailed(ctx, nil, jobId, err.Error())
+	}
+
+	return nil
+}
+
 func (s *authServiceImpl) VerifyEmail(ctx context.Context, token string) error {
 	hashedToken := utils.HashTokenSHA256(token)
 
@@ -154,40 +288,83 @@ func (s *authServiceImpl) VerifyEmail(ctx context.Context, token string) error {
 	if session == nil || session.RevokedAt != nil || session.ExpiresAt.Before(time.Now()) {
 		return lib.ErrInvalidToken
 	}
+
 	user, err := s.userRepo.GetByUserId(ctx, session.UserId)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve user: %w", err)
 	}
 
-	err = s.userRepo.UpdateVerifiedEmail(ctx, nil, session.UserId)
+	tx, err := s.txStarter.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	err = s.userRepo.MarkVerifiedEmail(ctx, tx, session.UserId)
 	if err != nil {
 		return fmt.Errorf("failed to update verified email: %w", err)
 	}
 
-	err = s.sessionRepo.DeleteSession(ctx, session.SessionId)
+	err = s.sessionRepo.DeleteSession(ctx, tx, session.SessionId)
 	if err != nil {
-		log.Warn().Err(err).Msg("failed to cleanup session")
+		return fmt.Errorf("failed to cleanup session: %w", err)
 	}
 
 	loginLink := s.env.External.FrontendURL + "/login"
-
+	jobId := utils.GenerateULID()
 	mailPayload := dto.EmailTaskPayload{
+		JobId: jobId,
 		Type:  "verify_email_success",
 		Email: user.Email,
 		Name:  user.Name,
 		Link:  loginLink,
 	}
 
+	payloadBytes, err := json.Marshal(mailPayload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal json: %w", err)
+	}
+
+	job := &model.LogJob{
+		JobId:       mailPayload.JobId,
+		Type:        mailPayload.Type,
+		Payload:     payloadBytes,
+		Status:      "pending",
+		RetryCount:  0,
+		ScheduledAt: time.Now(),
+		CreatedAt:   time.Now(),
+	}
+
+	err = s.logJobRepo.Create(ctx, tx, job)
+	if err != nil {
+		return fmt.Errorf("failed to create log job: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
 	err = s.producerSvc.SendEmailRequest(mailPayload)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to publish email to NSQ")
+		s.logJobRepo.MarkAsFailed(ctx, nil, job.JobId, err.Error())
+
 		return fmt.Errorf("failed to queue email: %w", err)
 	}
 
 	return nil
 }
 
-func (s *authServiceImpl) Login(ctx context.Context, req dto.LoginRequest) (*dto.LoginResponse, error) {
+func (s *authServiceImpl) Login(ctx context.Context, req dto.LoginRequest) (res *dto.LoginResponse, err error) {
+	start := time.Now()
+	defer func() {
+		status := "success"
+		if err != nil {
+			status = "failed"
+		}
+		metrics.TrackAuth("login", status, time.Since(start))
+	}()
+
 	user, err := s.userRepo.GetByEmailOrUsername(ctx, req.Identifier, req.Identifier)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user: %w", err)
@@ -209,7 +386,7 @@ func (s *authServiceImpl) Login(ctx context.Context, req dto.LoginRequest) (*dto
 	}
 
 	now := time.Now()
-	sessionId := utils.Generate()
+	sessionId := utils.GenerateULID()
 
 	accessExpiry := time.Duration(s.env.JWT.Token.AccessLifeTime)
 	refreshExpiry := 7 * 24 * time.Hour
@@ -243,7 +420,7 @@ func (s *authServiceImpl) Login(ctx context.Context, req dto.LoginRequest) (*dto
 		return nil, fmt.Errorf("failed to create session: %w", err)
 	}
 
-	if err := s.userRepo.UpdateLastLogin(ctx, user.UserId, now); err != nil {
+	if err := s.userRepo.MarkLastLogin(ctx, user.UserId, now); err != nil {
 		fmt.Printf("failed to update last login: %v\n", err)
 	}
 
@@ -287,11 +464,10 @@ func (s *authServiceImpl) ForgotPassword(ctx context.Context, email, userAgent, 
 	}
 
 	hashedToken := utils.HashTokenSHA256(resetToken)
-
 	expiresAt := time.Now().Add(time.Hour)
 
 	session := &model.UserSession{
-		SessionId: utils.Generate(),
+		SessionId: utils.GenerateULID(),
 		UserId:    user.UserId,
 		TokenHash: hashedToken,
 		ExpiresAt: expiresAt,
@@ -302,30 +478,74 @@ func (s *authServiceImpl) ForgotPassword(ctx context.Context, email, userAgent, 
 		UpdatedAt: time.Now(),
 	}
 
-	err = s.sessionRepo.Create(ctx, nil, session)
-	if err != nil {
-		return fmt.Errorf("failed to create reset password session: %w", err)
-	}
-
 	resetPasswordLink := fmt.Sprintf("%s?token=%s", s.env.External.ResetPasswordURL, resetToken)
 
+	jobId := utils.GenerateULID()
 	mailPayload := dto.EmailTaskPayload{
+		JobId: jobId,
 		Type:  "forgot_password",
 		Email: user.Email,
 		Name:  user.Name,
 		Link:  resetPasswordLink,
 	}
 
+	payloadBytes, err := json.Marshal(mailPayload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal json: %w", err)
+	}
+
+	job := &model.LogJob{
+		JobId:       mailPayload.JobId,
+		Type:        mailPayload.Type,
+		Payload:     payloadBytes,
+		Status:      "pending",
+		RetryCount:  0,
+		ScheduledAt: time.Now(),
+		CreatedAt:   time.Now(),
+	}
+
+	tx, err := s.txStarter.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	err = s.sessionRepo.Create(ctx, tx, session)
+	if err != nil {
+		return fmt.Errorf("failed to create reset password session: %w", err)
+	}
+
+	err = s.logJobRepo.Create(ctx, tx, job)
+	if err != nil {
+		return fmt.Errorf("failed to create log job: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
 	err = s.producerSvc.SendEmailRequest(mailPayload)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to publish email to NSQ")
-		return fmt.Errorf("failed to queue email: %w", err)
+		log.Error().Err(err).
+			Str("job_id", job.JobId).
+			Msg("failed to publish forgot password email to NSQ")
+
+		s.logJobRepo.MarkAsFailed(ctx, nil, job.JobId, err.Error())
 	}
 
 	return nil
 }
 
-func (s *authServiceImpl) RefreshToken(ctx context.Context, refreshToken string) (*dto.RefreshTokenResponse, error) {
+func (s *authServiceImpl) RefreshToken(ctx context.Context, refreshToken string) (res *dto.RefreshTokenResponse, err error) {
+	start := time.Now()
+	defer func() {
+		status := "success"
+		if err != nil {
+			status = "failed"
+		}
+		metrics.TrackAuth("refresh_token", status, time.Since(start))
+	}()
+
 	claims, err := lib.ValidateToken(refreshToken, s.env.JWT.SecretKey.Refresh)
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to validate refresh token")
@@ -396,24 +616,17 @@ func (s *authServiceImpl) ResetPassword(ctx context.Context, token string, newPa
 	hashedToken := utils.HashTokenSHA256(token)
 
 	log.Debug().Str("token_hash", hashedToken).Msg("attempting to reset password")
-
 	session, err := s.sessionRepo.GetByToken(ctx, hashedToken, "reset_password")
 	if err != nil {
-		log.Error().Err(err).Str("token_hash", hashedToken).Msg("database error while retrieving reset token")
 		return fmt.Errorf("failed to retrieve session: %w", err)
 	}
 
 	if session == nil || session.RevokedAt != nil || session.ExpiresAt.Before(time.Now()) {
-		log.Warn().
-			Str("token_hash", hashedToken).
-			Interface("session_exists", session != nil).
-			Msg("invalid or expired reset token attempt")
 		return lib.ErrInvalidToken
 	}
 
 	user, err := s.userRepo.GetByUserId(ctx, session.UserId)
 	if err != nil {
-		log.Error().Err(err).Str("user_id", session.UserId).Msg("failed to find user for password reset")
 		return fmt.Errorf("failed to retrieve user: %w", err)
 	}
 
@@ -423,44 +636,71 @@ func (s *authServiceImpl) ResetPassword(ctx context.Context, token string, newPa
 
 	hashedPassword, err := lib.Hash(newPassword)
 	if err != nil {
-		log.Error().Err(err).Str("user_id", session.UserId).Msg("failed to hash new password")
 		return fmt.Errorf("failed to hash new password: %w", err)
 	}
 
-	err = s.userRepo.UpdatePassword(ctx, session.UserId, hashedPassword)
-	if err != nil {
-		log.Error().Err(err).Str("user_id", session.UserId).Msg("failed to update password in database")
-		return fmt.Errorf("failed to update password: %w", err)
-	}
-
-	err = s.sessionRepo.RevokeAllUserSessions(ctx, nil, session.UserId)
-	if err != nil {
-		log.Warn().Err(err).Str("user_id", session.UserId).Msg("password updated but failed to revoke other sessions")
-		return fmt.Errorf("failed to revoke user sessions: %w", err)
-	}
-
-	err = s.sessionRepo.DeleteSession(ctx, session.SessionId)
-	if err != nil {
-		log.Warn().Err(err).Str("session_id", session.SessionId).Msg("failed to delete reset token after use")
-		return fmt.Errorf("failed to delete reset session: %w", err)
-	}
-
+	jobId := utils.GenerateULID()
 	mailPayload := dto.EmailTaskPayload{
+		JobId: jobId,
 		Type:  "password_reset_success",
 		Email: user.Email,
 		Name:  user.Name,
 	}
 
+	payloadBytes, err := json.Marshal(mailPayload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal json: %w", err)
+	}
+
+	job := &model.LogJob{
+		JobId:       mailPayload.JobId,
+		Type:        mailPayload.Type,
+		Payload:     payloadBytes,
+		Status:      "pending",
+		RetryCount:  0,
+		ScheduledAt: time.Now(),
+		CreatedAt:   time.Now(),
+	}
+
+	tx, err := s.txStarter.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	err = s.userRepo.UpdatePassword(ctx, tx, session.UserId, hashedPassword)
+	if err != nil {
+		return fmt.Errorf("failed to update password: %w", err)
+	}
+
+	err = s.sessionRepo.RevokeAllUserSessions(ctx, tx, session.UserId)
+	if err != nil {
+		return fmt.Errorf("failed to revoke user sessions: %w", err)
+	}
+
+	err = s.sessionRepo.DeleteSession(ctx, tx, session.SessionId)
+	if err != nil {
+		return fmt.Errorf("failed to delete reset session: %w", err)
+	}
+
+	err = s.logJobRepo.Create(ctx, tx, job)
+	if err != nil {
+		return fmt.Errorf("failed to create log job: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
 	err = s.producerSvc.SendEmailRequest(mailPayload)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to publish email to NSQ")
-		return fmt.Errorf("failed to queue email: %w", err)
+		s.logJobRepo.MarkAsFailed(ctx, nil, job.JobId, err.Error())
 	}
 
 	log.Info().
 		Str("user_id", session.UserId).
-		Str("session_id", session.SessionId).
-		Msg("password reset successfully and reset token invalidated")
+		Msg("password reset successfully and sessions cleaned up")
 
 	return nil
 }

@@ -175,14 +175,40 @@ func (r *sessionRepositoryImpl) RevokeAllUserSessions(ctx context.Context, tx pg
 	return nil
 }
 
-func (r *sessionRepositoryImpl) DeleteSession(ctx context.Context, sessionID string) error {
+func (r *sessionRepositoryImpl) DeleteSession(ctx context.Context, tx pgx.Tx, sessionId string) error {
 	query := `
 		DELETE FROM user_sessions
 		WHERE session_id = $1
 	`
-	_, err := r.db.Database.Conn.Exec(ctx, query, sessionID)
+	var err error
+	if tx != nil {
+		_, err = tx.Exec(ctx, query, sessionId)
+	} else {
+		_, err = r.db.Database.Conn.Exec(ctx, query, sessionId)
+	}
+
 	if err != nil {
 		return fmt.Errorf("failed to delete session: %w", err)
+	}
+
+	return nil
+}
+
+func (r *sessionRepositoryImpl) DeleteByType(ctx context.Context, tx pgx.Tx, userId string, sessionType string) error {
+	query := `
+		DELETE FROM user_sessions
+		WHERE user_id = $1 AND type = $2
+	`
+
+	var err error
+	if tx != nil {
+		_, err = tx.Exec(ctx, query, userId, sessionType)
+	} else {
+		_, err = r.db.Database.Conn.Exec(ctx, query, userId, sessionType)
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to delete sessions by type: %w", err)
 	}
 
 	return nil

@@ -13,6 +13,7 @@ func AuthRoutes(rg *gin.RouterGroup, h handler.AuthHandler, mw middleware.Middle
 	{
 		auth.POST("/check-availability", mw.RateLimit(30, time.Minute), h.CheckAvailability)
 		auth.POST("/register", mw.RateLimit(10, time.Minute), h.Register)
+		auth.POST("/resend-verification", mw.RateLimit(10, time.Minute), h.ResendVerification)
 		auth.GET("/verify-email", mw.RateLimit(10, time.Minute), h.VerifyEmail)
 		auth.POST("/login", mw.RateLimit(10, time.Minute), h.Login)
 		auth.POST("/forgot-password", mw.RateLimit(3, 15*time.Minute), h.ForgotPassword)
