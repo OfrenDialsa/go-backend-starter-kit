@@ -311,12 +311,18 @@ func (h *AuthHandlerImpl) CheckAvailability(ctx *gin.Context) {
 	result := gin.H{}
 
 	if req.Email != "" {
-		exists, _ := h.authService.CheckEmail(ctx, req.Email)
+		exists, err := h.authService.CheckEmail(ctx, req.Email)
+		if err != nil {
+			lib.RespondError(ctx, lib.ErrInternalServer)
+		}
 		result["email_available"] = !exists
 	}
 
 	if req.Username != "" {
-		exists, _ := h.authService.CheckUsername(ctx, req.Username)
+		exists, err := h.authService.CheckUsername(ctx, req.Username)
+		if err != nil {
+			lib.RespondError(ctx, lib.ErrInternalServer)
+		}
 		result["username_available"] = !exists
 	}
 

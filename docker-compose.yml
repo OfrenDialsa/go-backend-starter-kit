@@ -10,7 +10,7 @@ services:
       - .:/app
     image: starter-api
     ports:
-      - "${API_PORT:-8080}:${API_INTERNAL_PORT:-8080}"
+      - "${API_PORT:-8080}:8080"
     env_file:
       - env/.env
     depends_on:
@@ -65,7 +65,7 @@ services:
       - '--path.sysfs=/host/sys'
       - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
     ports:
-      - "${NODE_EXPORTER_PORT:-9100}:${NODE_EXPORTER_INTERNAL_PORT:-9100}"
+      - "${NODE_EXPORTER_PORT:-9100}:9100"
     restart: unless-stopped
     env_file:
       - env/.env
@@ -75,10 +75,22 @@ services:
     container_name: starter-postgres-exporter
     environment:
       DATA_SOURCE_NAME: "postgresql://postgres:password@postgres:5432/go-gin-starter?sslmode=disable"
-    expose:
-      - "${POSTGRES_EXPORTER_PORT:-9187}:${POSTGRES_EXPORTER_INTERNAL_PORT:-9187}"
+    ports:
+      - "${POSTGRES_EXPORTER_PORT:-9187}:9187"
     depends_on:
       - postgres
+      
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: starter-redis-exporter
+    environment:
+      - REDIS_ADDR=redis:6379
+    ports:
+      - "${REDIS_EXPORTER_PORT:-9121}:9121"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   pgdata:
