@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"github/OfrenDialsa/go-gin-starter/internal/dto"
 	"github/OfrenDialsa/go-gin-starter/internal/service"
 	"github/OfrenDialsa/go-gin-starter/lib"
@@ -44,87 +43,85 @@ func setupConsumerService(t *testing.T) *consumerServiceTestDeps {
 func TestProcessEmail(t *testing.T) {
 	ctx := context.Background()
 
+	createEventBody := func(eventType string, jobId string, payload interface{}) []byte {
+		pBytes, _ := json.Marshal(payload)
+		event := dto.DomainEvent{
+			EventId:   jobId,
+			EventType: eventType,
+			Payload:   pBytes,
+		}
+		body, _ := json.Marshal(event)
+		return body
+	}
+
 	tests := []struct {
 		name      string
-		payload   interface{}
+		body      []byte
 		setupMock func(d *consumerServiceTestDeps)
 		wantErr   bool
 	}{
 		{
-			name: "Success_VerifyEmail_WithJobLogging",
-			payload: dto.EmailTaskPayload{
-				JobId: "job-123",
-				Type:  "verify_email",
+			name: "Success_UserRegistered",
+			body: createEventBody(lib.NSQ_USER_REGISTERED_EVENT, "job-123", dto.EmailSendPayload{
 				Email: "ofren@example.com",
 				Name:  "Ofren",
-			},
+				Token: "token-abc",
+			}),
 			setupMock: func(d *consumerServiceTestDeps) {
-				d.mailer.On("Send", mock.Anything).Return("msg-id", nil)
+				// 1. Tambahkan Mock untuk Idempotency Lock
+				d.logJobRepo.On("UpdateStatusToProcessing", ctx, nil, "job-123").Return(int64(1), nil)
 
-				d.logJobRepo.On("MarkAsCompleted", ctx, mock.Anything, "job-123").Return(nil)
+				d.mailer.On("Send", mock.MatchedBy(func(req dto.MailerRequest) bool {
+					return req.Subject == lib.DefaultEmailSubjectRegister && req.To[0] == "ofren@example.com"
+				})).Return("msg-id", nil)
+
+				d.logJobRepo.On("MarkAsCompleted", ctx, nil, "job-123").Return(nil)
 			},
 			wantErr: false,
 		},
 		{
-			name: "Error_EmptyEmailAddress",
-			payload: dto.EmailTaskPayload{
-				JobId: "job-empty-email",
-				Type:  "verify_email",
-				Email: "",
-			},
+			name: "Skip_AlreadyProcessed_Idempotent",
+			body: createEventBody(lib.NSQ_USER_REGISTERED_EVENT, "job-duplicate", dto.EmailSendPayload{
+				Email: "ofren@example.com",
+			}),
 			setupMock: func(d *consumerServiceTestDeps) {
-				d.mailer.On("Send", mock.Anything).Return("", fmt.Errorf("empty email address"))
+				// Return 0 artinya job sudah processing atau completed
+				d.logJobRepo.On("UpdateStatusToProcessing", ctx, nil, "job-duplicate").Return(int64(0), nil)
 
-				d.logJobRepo.On("MarkAsFailed", ctx, nil, "job-empty-email", "invalid recipient email (permanent error)").Return(nil)
+				// Mailer TIDAK BOLEH dipanggil
+				d.mailer.AssertNotCalled(t, "Send", mock.Anything)
 			},
 			wantErr: false,
 		},
 		{
-			name: "Error_MailerFailed_UpdateJobStatus",
-			payload: dto.EmailTaskPayload{
-				JobId: "job-failed",
-				Type:  "forgot_password",
+			name: "Error_SMTPDown_ShouldRetry",
+			body: createEventBody(lib.NSQ_PASSWORD_RESET_REQUESTED_EVENT, "job-retry", dto.EmailSendPayload{
 				Email: "user@example.com",
-			},
+				Token: "reset-123",
+			}),
 			setupMock: func(d *consumerServiceTestDeps) {
-				d.mailer.On("Send", mock.Anything).Return("", errors.New("smtp down"))
+				d.logJobRepo.On("UpdateStatusToProcessing", ctx, nil, "job-retry").Return(int64(1), nil)
 
-				// PERBAIKAN: Berdasarkan log, kodemu memanggil IncrementRetry
-				d.logJobRepo.On("IncrementRetry", ctx, nil, "job-failed").Return(nil)
+				d.mailer.On("Send", mock.Anything).Return("", errors.New("smtp connection refused"))
 
-				// Dan memanggil MarkAsFailed
-				d.logJobRepo.On("MarkAsFailed", ctx, nil, "job-failed", "smtp down").Return(nil)
+				d.logJobRepo.On("IncrementRetry", ctx, nil, "job-retry").Return(nil)
+				d.logJobRepo.On("MarkAsFailed", ctx, nil, "job-retry", "smtp connection refused").Return(nil)
 			},
 			wantErr: true,
 		},
 		{
-			name: "Success_NoJobId_ShouldOnlySendEmail",
-			payload: dto.EmailTaskPayload{
-				JobId: "", // Edge case: Tidak ada JobId (mungkin request manual)
-				Type:  "verify_email",
-				Email: "user@example.com",
-			},
+			name: "Error_EmptyEmail_PermanentFailure",
+			body: createEventBody(lib.NSQ_USER_REGISTERED_EVENT, "job-perm-fail", dto.EmailSendPayload{
+				Email: "",
+				Name:  "Ofren",
+			}),
 			setupMock: func(d *consumerServiceTestDeps) {
-				d.mailer.On("Send", mock.Anything).Return("msg-ok", nil)
-				// logJobRepo tidak boleh dipanggil sama sekali
+				d.logJobRepo.On("UpdateStatusToProcessing", ctx, nil, "job-perm-fail").Return(int64(1), nil)
+
+				// Di kode terbaru, email == "" dicek SEBELUM mailer.Send
+				d.logJobRepo.On("MarkAsFailed", ctx, nil, "job-perm-fail", "invalid recipient email (permanent error)").Return(nil)
 			},
 			wantErr: false,
-		},
-		{
-			name: "Error_RepoUpdateFailed_StillReturnSuccess",
-			payload: dto.EmailTaskPayload{
-				JobId: "job-repo-fail",
-				Type:  "verify_email",
-				Email: "ofren@example.com",
-			},
-			setupMock: func(d *consumerServiceTestDeps) {
-				d.mailer.On("Send", mock.Anything).Return("msg-ok", nil)
-
-				// Edge case: Email terkirim tapi database sedang sibuk/error
-				d.logJobRepo.On("MarkAsCompleted", ctx, mock.Anything, "job-repo-fail").
-					Return(errors.New("db dead"))
-			},
-			wantErr: false, // Tetap false karena prioritas utama (Email) sudah terkirim
 		},
 	}
 
@@ -133,17 +130,8 @@ func TestProcessEmail(t *testing.T) {
 			d := setupConsumerService(t)
 			tt.setupMock(d)
 
-			var body []byte
-			if b, ok := tt.payload.([]byte); ok {
-				body = b
-			} else {
-				body, _ = json.Marshal(tt.payload)
-			}
-
-			// Mock NSQ Message
-			message := &nsq.Message{Body: body}
-
-			err := d.svc.ProcessEmail(ctx, message)
+			message := &nsq.Message{Body: tt.body, Attempts: 1}
+			err := d.svc.HandleEvent(ctx, message)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -160,20 +148,27 @@ func TestProcessEmail(t *testing.T) {
 func TestProcessEmail_PayloadTypes(t *testing.T) {
 	ctx := context.Background()
 
+	// Helper untuk membuat []byte dari payload apapun
+	marshalPayload := func(p interface{}) []byte {
+		b, _ := json.Marshal(p)
+		return b
+	}
+
 	tests := []struct {
 		name      string
-		payload   dto.EmailTaskPayload
+		event     dto.DomainEvent
 		setupMock func(d *consumerServiceTestDeps)
 		wantErr   bool
 	}{
 		{
 			name: "Success_VerifyEmailSuccess",
-			payload: dto.EmailTaskPayload{
-				JobId: "job-abc",
-				Type:  "verify_email_success",
-				Email: "ofren@example.com",
-				Name:  "Ofren Dialsa",
-				Link:  "https://example.com/login",
+			event: dto.DomainEvent{
+				EventId:   "job-abc",
+				EventType: lib.NSQ_EMAIL_VERIFIED_EVENT,
+				Payload: marshalPayload(dto.EmailSuccessPayload{
+					Email: "ofren@example.com",
+					Name:  "Ofren Dialsa",
+				}),
 			},
 			setupMock: func(d *consumerServiceTestDeps) {
 				d.mailer.On("Send", mock.MatchedBy(func(req dto.MailerRequest) bool {
@@ -185,12 +180,14 @@ func TestProcessEmail_PayloadTypes(t *testing.T) {
 		},
 		{
 			name: "Success_ForgotPassword",
-			payload: dto.EmailTaskPayload{
-				JobId: "job-pwd",
-				Type:  "forgot_password",
-				Email: "ofren@example.com",
-				Name:  "Ofren",
-				Link:  "https://example.com/reset",
+			event: dto.DomainEvent{
+				EventId:   "job-pwd",
+				EventType: lib.NSQ_PASSWORD_RESET_REQUESTED_EVENT,
+				Payload: marshalPayload(dto.EmailSendPayload{
+					Email: "ofren@example.com",
+					Name:  "Ofren",
+					Token: "asdnaiofbnailjfnakJfe",
+				}),
 			},
 			setupMock: func(d *consumerServiceTestDeps) {
 				d.mailer.On("Send", mock.MatchedBy(func(req dto.MailerRequest) bool {
@@ -202,11 +199,13 @@ func TestProcessEmail_PayloadTypes(t *testing.T) {
 		},
 		{
 			name: "Success_PasswordResetSuccess",
-			payload: dto.EmailTaskPayload{
-				JobId: "job-pwd-ok",
-				Type:  "password_reset_success",
-				Email: "ofren@example.com",
-				Name:  "Ofren",
+			event: dto.DomainEvent{
+				EventId:   "job-pwd-ok",
+				EventType: lib.NSQ_PASSWORD_RESET_SUCCESS_EVENT,
+				Payload: marshalPayload(dto.EmailSuccessPayload{
+					Email: "ofren@example.com",
+					Name:  "Ofren",
+				}),
 			},
 			setupMock: func(d *consumerServiceTestDeps) {
 				d.mailer.On("Send", mock.MatchedBy(func(req dto.MailerRequest) bool {
@@ -218,43 +217,50 @@ func TestProcessEmail_PayloadTypes(t *testing.T) {
 		},
 		{
 			name: "Success_UnknownType_ShouldReturnNil",
-			payload: dto.EmailTaskPayload{
-				Type:  "random_type_123",
-				Email: "ofren@example.com",
+			event: dto.DomainEvent{
+				EventType: "random_type_123",
+				Payload:   []byte(`{}`),
 			},
-			setupMock: func(d *consumerServiceTestDeps) {
-			},
-			wantErr: false,
+			setupMock: func(d *consumerServiceTestDeps) {},
+			wantErr:   false,
 		},
 		{
-			name: "Success_VerifyEmail_WithEmptyLink_StillSends",
-			payload: dto.EmailTaskPayload{
-				JobId: "job-empty-link",
-				Type:  "verify_email",
-				Email: "ofren@example.com",
-				Name:  "Ofren",
-				Link:  "",
+			name: "Success_Register_FirstTime",
+			event: dto.DomainEvent{
+				EventId:   "job-reg-1",
+				EventType: lib.NSQ_USER_REGISTERED_EVENT,
+				Payload: marshalPayload(dto.EmailSendPayload{
+					Email: "ofren@example.com",
+					Name:  "Ofren",
+					Token: "token-123",
+				}),
 			},
 			setupMock: func(d *consumerServiceTestDeps) {
 				d.mailer.On("Send", mock.MatchedBy(func(req dto.MailerRequest) bool {
-					return req.To[0] == "ofren@example.com" && req.Subject != ""
+					return req.Subject == lib.DefaultEmailSubjectRegister
 				})).Return("msg-123", nil)
-
-				d.logJobRepo.On("MarkAsCompleted", ctx, nil, "job-empty-link").Return(nil)
+				d.logJobRepo.On("MarkAsCompleted", ctx, nil, "job-reg-1").Return(nil)
 			},
 			wantErr: false,
 		},
 		{
-			name: "Success_ThanksEmail_NoLinkNeeded",
-			payload: dto.EmailTaskPayload{
-				JobId: "job-thanks",
-				Type:  "password_reset_success",
-				Email: "ofren@example.com",
-				Name:  "Ofren",
+			name: "Success_ResendVerification",
+			event: dto.DomainEvent{
+				EventId:   "job-resend-123",
+				EventType: lib.NSQ_RESEND_VERIFICATION_EVENT,
+				Payload: marshalPayload(dto.EmailSendPayload{
+					Email: "ofren@example.com",
+					Name:  "Ofren",
+					Token: "new-token-456",
+				}),
 			},
 			setupMock: func(d *consumerServiceTestDeps) {
-				d.mailer.On("Send", mock.Anything).Return("msg-456", nil)
-				d.logJobRepo.On("MarkAsCompleted", ctx, nil, "job-thanks").Return(nil)
+				d.mailer.On("Send", mock.MatchedBy(func(req dto.MailerRequest) bool {
+					return req.Subject == lib.DefaultEmailSubjectResend &&
+						req.To[0] == "ofren@example.com"
+				})).Return("msg-resend-id", nil)
+
+				d.logJobRepo.On("MarkAsCompleted", ctx, nil, "job-resend-123").Return(nil)
 			},
 			wantErr: false,
 		},
@@ -263,12 +269,17 @@ func TestProcessEmail_PayloadTypes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			d := setupConsumerService(t)
+
+			if tt.name != "Success_UnknownType_ShouldReturnNil" {
+				d.logJobRepo.On("UpdateStatusToProcessing", ctx, nil, tt.event.EventId).Return(int64(1), nil)
+			}
+
 			tt.setupMock(d)
 
-			body, _ := json.Marshal(tt.payload)
+			body, _ := json.Marshal(tt.event)
 			message := &nsq.Message{Body: body, Attempts: 1}
 
-			err := d.svc.ProcessEmail(ctx, message)
+			err := d.svc.HandleEvent(ctx, message)
 
 			if tt.wantErr {
 				assert.Error(t, err)

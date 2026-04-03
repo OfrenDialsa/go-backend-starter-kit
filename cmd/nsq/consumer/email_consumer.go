@@ -12,25 +12,25 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-type ProcessEmailHandler struct {
+type EmailConsumer struct {
 	Env             *config.EnvironmentVariable
 	ConsumerService service.ConsumerService
 	Repository      api.Repositories
 }
 
-func NewProcessEmailHandler(
+func NewEmailConsumer(
 	env *config.EnvironmentVariable,
 	cs service.ConsumerService,
 	r api.Repositories,
-) *ProcessEmailHandler {
-	return &ProcessEmailHandler{
+) *EmailConsumer {
+	return &EmailConsumer{
 		Env:             env,
 		ConsumerService: cs,
 		Repository:      r,
 	}
 }
 
-func (h *ProcessEmailHandler) StartListen() error {
+func (h *EmailConsumer) StartListen() error {
 	configNSQ := nsq.NewConfig()
 
 	topic := h.Env.MessageQueue.NSQ.Consumer.Email.Topic.SendEmail.TopicName
@@ -57,16 +57,16 @@ func (h *ProcessEmailHandler) StartListen() error {
 	log.Info().
 		Str("topic", topic).
 		Str("channel", channel).
-		Msg("[v] Email Worker is listening")
+		Msg("[v] Email Consumer is listening")
 
 	return nil
 }
 
-func (h *ProcessEmailHandler) HandleMessage(message *nsq.Message) error {
+func (h *EmailConsumer) HandleMessage(msg *nsq.Message) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
 	defer cancel()
 
-	err := h.ConsumerService.ProcessEmail(ctx, message)
+	err := h.ConsumerService.HandleEvent(ctx, msg)
 	if err != nil {
 		log.Error().
 			Err(err).

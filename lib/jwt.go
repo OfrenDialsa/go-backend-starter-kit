@@ -52,7 +52,6 @@ func GenerateTokenPair(userId, sessionId, role, accessSecret, refreshSecret stri
 	refreshClaims := JWTClaims{
 		UserId:    userId,
 		SessionId: sessionId,
-		Role:      role,
 		TokenType: RefreshToken,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(refreshExpiry)),

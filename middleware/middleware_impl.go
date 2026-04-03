@@ -69,15 +69,28 @@ func (m *MiddlewareImpl) Validate(roles ...lib.Role) gin.HandlerFunc {
 		}
 
 		if len(roles) > 0 {
-			if !utils.ContainsRole(lib.Role(claims.Role), roles) {
+			if !utils.ContainsRole(lib.Role(session.Role), roles) {
 				lib.RespondError(c, lib.ErrForbidden)
 				c.Abort()
 				return
 			}
 		}
 
+		c.Set("is_verified", session.EmailVerifiedAt != nil)
 		c.Set("user", claims)
 
+		c.Next()
+	}
+}
+
+func (m *MiddlewareImpl) EmailVerified() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		isVerified, exists := c.Get("is_verified")
+		if !exists || isVerified == false {
+			lib.RespondError(c, lib.ErrEmailNotVerified)
+			c.Abort()
+			return
+		}
 		c.Next()
 	}
 }

@@ -56,6 +56,37 @@ func (r *logJobRepositoryImpl) Create(ctx context.Context, tx pgx.Tx, job *model
 	return nil
 }
 
+func (r *logJobRepositoryImpl) UpdateStatusToProcessing(ctx context.Context, tx pgx.Tx, jobId string) (int64, error) {
+	query := `
+		UPDATE log_jobs
+		SET status = 'processing'
+		WHERE job_id = $1 AND status = 'pending'
+	`
+
+	var err error
+	var rowsAffected int64
+
+	if tx != nil {
+		result, errExec := tx.Exec(ctx, query, jobId)
+		if errExec == nil {
+			rowsAffected = result.RowsAffected()
+		}
+		err = errExec
+	} else {
+		result, errExec := r.db.Database.Conn.Exec(ctx, query, jobId)
+		if errExec == nil {
+			rowsAffected = result.RowsAffected()
+		}
+		err = errExec
+	}
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to update status to processing: %w", err)
+	}
+
+	return rowsAffected, nil
+}
+
 func (r *logJobRepositoryImpl) FindByJobId(ctx context.Context, tx pgx.Tx, jobId string) (*model.LogJob, error) {
 	query := `
 		SELECT job_id, type, payload, status, retry_count, last_error, 
