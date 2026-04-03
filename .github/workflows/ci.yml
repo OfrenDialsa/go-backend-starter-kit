@@ -35,7 +35,7 @@ jobs:
         COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
         
         if [ -z "$COVERAGE" ]; then
-          echo "❌ Error: Could not calculate coverage. Check test logs."
+          echo "[x] Error: Could not calculate coverage. Check test logs."
           exit 1
         fi
 
@@ -43,8 +43,8 @@ jobs:
         echo "Current coverage: $COVERAGE%"
         
         if (( $(echo "$COVERAGE < $THRESHOLD" | bc -l) )); then
-          echo "❌ Coverage is below $THRESHOLD%! Coverage: $COVERAGE%"
+          echo "[x] Coverage is below $THRESHOLD%! Coverage: $COVERAGE%"
           exit 1
         else
-          echo "✅ Coverage is sufficient: $COVERAGE%"
+          echo "[v] Coverage is sufficient: $COVERAGE%"
         fi

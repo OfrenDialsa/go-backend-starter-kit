@@ -9,5 +9,6 @@ import (
 
 type Middleware interface {
 	Validate(roles ...lib.Role) gin.HandlerFunc
+	EmailVerified() gin.HandlerFunc
 	RateLimit(limit int, window time.Duration) gin.HandlerFunc
 }

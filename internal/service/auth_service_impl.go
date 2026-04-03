@@ -126,16 +126,14 @@ func (s *authServiceImpl) Register(ctx context.Context, userAgent, ipAddress str
 		return nil, fmt.Errorf("failed to create reset password session: %w", err)
 	}
 
-	verifLink := fmt.Sprintf("%s?token=%s", s.env.External.VerifyEmailURL, verifToken)
-
 	jobId := utils.GenerateULID()
 
-	mailPayload := dto.EmailTaskPayload{
+	mailPayload := dto.EmailSendPayload{
 		JobId: jobId,
-		Type:  "verify_email",
+		Type:  lib.NSQ_USER_REGISTERED_EVENT,
 		Email: user.Email,
 		Name:  user.Name,
-		Link:  verifLink,
+		Token: verifToken,
 	}
 
 	payloadBytes, err := json.Marshal(mailPayload)
@@ -143,10 +141,19 @@ func (s *authServiceImpl) Register(ctx context.Context, userAgent, ipAddress str
 		return nil, fmt.Errorf("failed to marshal json: %w", err)
 	}
 
+	event := dto.DomainEvent{
+		EventId:    jobId,
+		EventType:  lib.NSQ_USER_REGISTERED_EVENT,
+		Payload:    payloadBytes,
+		OccurredAt: time.Now(),
+	}
+
+	jobPayload := fmt.Sprintf(`{"user_id": "%s", "action": "user_registration"}`, user.UserId)
+
 	job := &model.LogJob{
-		JobId:       mailPayload.JobId,
-		Type:        mailPayload.Type,
-		Payload:     payloadBytes,
+		JobId:       event.EventId,
+		Type:        event.EventType,
+		Payload:     []byte(jobPayload),
 		Status:      "pending",
 		RetryCount:  0,
 		ScheduledAt: time.Now(),
@@ -162,11 +169,11 @@ func (s *authServiceImpl) Register(ctx context.Context, userAgent, ipAddress str
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	err = s.producerSvc.SendEmailRequest(mailPayload)
+	err = s.producerSvc.PublishEvent(event)
+
 	if err != nil {
 		log.Error().Err(err).Msg("failed to publish email to NSQ")
-		s.logJobRepo.MarkAsFailed(ctx, nil, job.JobId, err.Error())
-		return nil, fmt.Errorf("failed to queue email: %w", err)
+		_ = s.logJobRepo.MarkAsFailed(ctx, nil, job.JobId, err.Error())
 	}
 
 	return &dto.RegisterResponse{
@@ -203,17 +210,6 @@ func (s *authServiceImpl) ResendVerificationEmail(ctx context.Context, userAgent
 		return lib.ErrEmailAlreadyVerified
 	}
 
-	tx, err := s.txStarter.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback(ctx)
-
-	err = s.sessionRepo.DeleteByType(ctx, tx, user.UserId, "verify_email")
-	if err != nil {
-		return fmt.Errorf("failed to cleanup old verification tokens: %w", err)
-	}
-
 	verifToken, err := utils.GenerateToken()
 	if err != nil {
 		return fmt.Errorf("failed to generate token: %w", err)
@@ -233,30 +229,52 @@ func (s *authServiceImpl) ResendVerificationEmail(ctx context.Context, userAgent
 		UpdatedAt: time.Now(),
 	}
 
-	err = s.sessionRepo.Create(ctx, tx, session)
-	if err != nil {
-		return fmt.Errorf("failed to create verification session: %w", err)
-	}
-
-	verifLink := fmt.Sprintf("%s?token=%s", s.env.External.VerifyEmailURL, verifToken)
 	jobId := utils.GenerateULID()
-
-	mailPayload := dto.EmailTaskPayload{
+	mailPayload := dto.EmailSendPayload{
 		JobId: jobId,
-		Type:  "verify_email",
+		Type:  lib.NSQ_RESEND_VERIFICATION_EVENT,
 		Email: user.Email,
 		Name:  user.Name,
-		Link:  verifLink,
+		Token: verifToken,
 	}
 
-	payloadBytes, _ := json.Marshal(mailPayload)
+	payloadBytes, err := json.Marshal(mailPayload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal json: %w", err)
+	}
+
+	event := dto.DomainEvent{
+		EventId:    jobId,
+		EventType:  lib.NSQ_RESEND_VERIFICATION_EVENT,
+		Payload:    payloadBytes,
+		OccurredAt: time.Now(),
+	}
+
+	jobPayload := fmt.Sprintf(`{"user_id": "%s", "action": "resend_email_verification"}`, user.UserId)
+
 	job := &model.LogJob{
-		JobId:       jobId,
-		Type:        mailPayload.Type,
-		Payload:     payloadBytes,
+		JobId:       event.EventId,
+		Type:        event.EventType,
+		Payload:     []byte(jobPayload),
 		Status:      "pending",
 		ScheduledAt: time.Now(),
 		CreatedAt:   time.Now(),
+	}
+
+	tx, err := s.txStarter.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	err = s.sessionRepo.DeleteByType(ctx, tx, user.UserId, "verify_email")
+	if err != nil {
+		return fmt.Errorf("failed to cleanup old verification tokens: %w", err)
+	}
+
+	err = s.sessionRepo.Create(ctx, tx, session)
+	if err != nil {
+		return fmt.Errorf("failed to create verification session: %w", err)
 	}
 
 	err = s.logJobRepo.Create(ctx, tx, job)
@@ -268,7 +286,7 @@ func (s *authServiceImpl) ResendVerificationEmail(ctx context.Context, userAgent
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	err = s.producerSvc.SendEmailRequest(mailPayload)
+	err = s.producerSvc.PublishEvent(event)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to publish resend email to NSQ")
 		s.logJobRepo.MarkAsFailed(ctx, nil, jobId, err.Error())
@@ -293,7 +311,37 @@ func (s *authServiceImpl) VerifyEmail(ctx context.Context, token string) error {
 	if err != nil {
 		return fmt.Errorf("failed to retrieve user: %w", err)
 	}
+	jobId := utils.GenerateULID()
+	mailPayload := dto.EmailSendPayload{
+		JobId: jobId,
+		Type:  lib.NSQ_EMAIL_VERIFIED_EVENT,
+		Email: user.Email,
+		Name:  user.Name,
+	}
 
+	payloadBytes, err := json.Marshal(mailPayload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal json: %w", err)
+	}
+
+	event := dto.DomainEvent{
+		EventId:    jobId,
+		EventType:  lib.NSQ_EMAIL_VERIFIED_EVENT,
+		Payload:    payloadBytes,
+		OccurredAt: time.Now(),
+	}
+
+	job := &model.LogJob{
+		JobId:       event.EventId,
+		Type:        event.EventType,
+		Payload:     payloadBytes,
+		Status:      "pending",
+		RetryCount:  0,
+		ScheduledAt: time.Now(),
+		CreatedAt:   time.Now(),
+	}
+
+	//start transaction
 	tx, err := s.txStarter.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -310,31 +358,6 @@ func (s *authServiceImpl) VerifyEmail(ctx context.Context, token string) error {
 		return fmt.Errorf("failed to cleanup session: %w", err)
 	}
 
-	loginLink := s.env.External.FrontendURL + "/login"
-	jobId := utils.GenerateULID()
-	mailPayload := dto.EmailTaskPayload{
-		JobId: jobId,
-		Type:  "verify_email_success",
-		Email: user.Email,
-		Name:  user.Name,
-		Link:  loginLink,
-	}
-
-	payloadBytes, err := json.Marshal(mailPayload)
-	if err != nil {
-		return fmt.Errorf("failed to marshal json: %w", err)
-	}
-
-	job := &model.LogJob{
-		JobId:       mailPayload.JobId,
-		Type:        mailPayload.Type,
-		Payload:     payloadBytes,
-		Status:      "pending",
-		RetryCount:  0,
-		ScheduledAt: time.Now(),
-		CreatedAt:   time.Now(),
-	}
-
 	err = s.logJobRepo.Create(ctx, tx, job)
 	if err != nil {
 		return fmt.Errorf("failed to create log job: %w", err)
@@ -344,12 +367,10 @@ func (s *authServiceImpl) VerifyEmail(ctx context.Context, token string) error {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	err = s.producerSvc.SendEmailRequest(mailPayload)
+	err = s.producerSvc.PublishEvent(event)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to publish email to NSQ")
-		s.logJobRepo.MarkAsFailed(ctx, nil, job.JobId, err.Error())
-
-		return fmt.Errorf("failed to queue email: %w", err)
+		_ = s.logJobRepo.MarkAsFailed(ctx, nil, job.JobId, err.Error())
 	}
 
 	return nil
@@ -371,10 +392,6 @@ func (s *authServiceImpl) Login(ctx context.Context, req dto.LoginRequest) (res 
 	}
 	if user == nil || user.PasswordHash == nil {
 		return nil, lib.ErrInvalidCredential
-	}
-
-	if user.EmailVerifiedAt == nil {
-		return nil, lib.ErrEmailNotVerified
 	}
 
 	if user.Status != "active" {
@@ -478,15 +495,13 @@ func (s *authServiceImpl) ForgotPassword(ctx context.Context, email, userAgent, 
 		UpdatedAt: time.Now(),
 	}
 
-	resetPasswordLink := fmt.Sprintf("%s?token=%s", s.env.External.ResetPasswordURL, resetToken)
-
 	jobId := utils.GenerateULID()
-	mailPayload := dto.EmailTaskPayload{
+	mailPayload := dto.EmailSendPayload{
 		JobId: jobId,
-		Type:  "forgot_password",
+		Type:  lib.NSQ_PASSWORD_RESET_REQUESTED_EVENT,
 		Email: user.Email,
 		Name:  user.Name,
-		Link:  resetPasswordLink,
+		Token: resetToken,
 	}
 
 	payloadBytes, err := json.Marshal(mailPayload)
@@ -494,10 +509,19 @@ func (s *authServiceImpl) ForgotPassword(ctx context.Context, email, userAgent, 
 		return fmt.Errorf("failed to marshal json: %w", err)
 	}
 
+	event := dto.DomainEvent{
+		EventId:    jobId,
+		EventType:  lib.NSQ_PASSWORD_RESET_REQUESTED_EVENT,
+		Payload:    payloadBytes,
+		OccurredAt: time.Now(),
+	}
+
+	jobPayload := fmt.Sprintf(`{"user_id": "%s", "action": "forgot_password"}`, user.UserId)
+
 	job := &model.LogJob{
-		JobId:       mailPayload.JobId,
-		Type:        mailPayload.Type,
-		Payload:     payloadBytes,
+		JobId:       event.EventId,
+		Type:        event.EventType,
+		Payload:     []byte(jobPayload),
 		Status:      "pending",
 		RetryCount:  0,
 		ScheduledAt: time.Now(),
@@ -524,7 +548,7 @@ func (s *authServiceImpl) ForgotPassword(ctx context.Context, email, userAgent, 
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	err = s.producerSvc.SendEmailRequest(mailPayload)
+	err = s.producerSvc.PublishEvent(event)
 	if err != nil {
 		log.Error().Err(err).
 			Str("job_id", job.JobId).
@@ -640,9 +664,9 @@ func (s *authServiceImpl) ResetPassword(ctx context.Context, token string, newPa
 	}
 
 	jobId := utils.GenerateULID()
-	mailPayload := dto.EmailTaskPayload{
+	mailPayload := dto.EmailSendPayload{
 		JobId: jobId,
-		Type:  "password_reset_success",
+		Type:  lib.NSQ_PASSWORD_RESET_SUCCESS_EVENT,
 		Email: user.Email,
 		Name:  user.Name,
 	}
@@ -652,10 +676,18 @@ func (s *authServiceImpl) ResetPassword(ctx context.Context, token string, newPa
 		return fmt.Errorf("failed to marshal json: %w", err)
 	}
 
+	event := dto.DomainEvent{
+		EventId:    jobId,
+		EventType:  lib.NSQ_PASSWORD_RESET_SUCCESS_EVENT,
+		Payload:    payloadBytes,
+		OccurredAt: time.Now(),
+	}
+
+	jobPayload := fmt.Sprintf(`{"user_id": "%s", "action": "reset_password"}`, user.UserId)
 	job := &model.LogJob{
-		JobId:       mailPayload.JobId,
-		Type:        mailPayload.Type,
-		Payload:     payloadBytes,
+		JobId:       event.EventId,
+		Type:        event.EventType,
+		Payload:     []byte(jobPayload),
 		Status:      "pending",
 		RetryCount:  0,
 		ScheduledAt: time.Now(),
@@ -692,10 +724,10 @@ func (s *authServiceImpl) ResetPassword(ctx context.Context, token string, newPa
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	err = s.producerSvc.SendEmailRequest(mailPayload)
+	err = s.producerSvc.PublishEvent(event)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to publish email to NSQ")
-		s.logJobRepo.MarkAsFailed(ctx, nil, job.JobId, err.Error())
+		_ = s.logJobRepo.MarkAsFailed(ctx, nil, job.JobId, err.Error())
 	}
 
 	log.Info().

@@ -7,23 +7,43 @@ import (
 )
 
 const (
-	DefaultEmailSubject = "Verify Your Email"
-	DefaultBody         = `
+	DefaultEmailSubjectRegister = "Welcome to Our Platform! Please Verify Your Email"
+	DefaultBodyRegister         = `
 <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
     <div style="background-color: #2563eb; padding: 20px; text-align: center;">
-        <h2 style="color: #ffffff; margin: 0; font-size: 24px;">Email Verification</h2>
+        <h2 style="color: #ffffff; margin: 0; font-size: 24px;">Welcome Aboard!</h2>
     </div>
     <div style="padding: 30px; line-height: 1.6; color: #333333;">
         <p style="font-size: 16px;">Hello <strong>{{.Name}}</strong>,</p>
-        <p style="font-size: 16px;">Thank you for registering! Please verify your email address by clicking the button below to activate your account:</p>
+        <p style="font-size: 16px;">We're thrilled to have you here! To get started and access all our features, please verify your email address by clicking the button below:</p>
+        <div style="text-align: center; margin: 30px 0;">
+            <a href="{{.VerificationLink}}" style="background-color: #2563eb; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block; font-size: 16px;">Verify My Account</a>
+        </div>
+        <p style="font-size: 14px; color: #666666;">If you have any questions, feel free to reply to this email.</p>
+    </div>
+    <div style="background-color: #f9fafb; padding: 20px; text-align: center; border-top: 1px solid #eeeeee;">
+        <p style="font-size: 12px; color: #999999; margin: 0;">Sent with by <strong>Ofren Dialsa</strong></p>
+    </div>
+</div>`
+
+	DefaultEmailSubjectResend = "New Verification Link"
+	DefaultBodyResend         = `
+<div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
+    <div style="background-color: #4b5563; padding: 20px; text-align: center;">
+        <h2 style="color: #ffffff; margin: 0; font-size: 24px;">Verification Link</h2>
+    </div>
+    <div style="padding: 30px; line-height: 1.6; color: #333333;">
+        <p style="font-size: 16px;">Hello <strong>{{.Name}}</strong>,</p>
+        <p style="font-size: 16px;">As requested, here is your new verification link to activate your account. This link will expire shortly.</p>
         <div style="text-align: center; margin: 30px 0;">
             <a href="{{.VerificationLink}}" style="background-color: #2563eb; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block; font-size: 16px;">Verify Email Address</a>
         </div>
-        <p style="font-size: 14px; color: #666666;">If the button above does not work, please copy and paste the following link into your browser:</p>
-        <div style="background-color: #f8f9fa; padding: 15px; border-radius: 4px; word-break: break-all; font-size: 13px; color: #2563eb; border: 1px solid #eeeeee;">{{.VerificationLink}}</div>
+        <p style="font-size: 13px; color: #ef4444; background-color: #fef2f2; padding: 10px; border-radius: 4px; border: 1px solid #fee2e2;">
+            <strong>Note:</strong> If you didn't request this, please ignore this email.
+        </p>
     </div>
     <div style="background-color: #f9fafb; padding: 20px; text-align: center; border-top: 1px solid #eeeeee;">
-        <p style="font-size: 12px; color: #999999; margin: 0;">If you did not create this account, you can safely ignore this email.<br>Sent with by <strong>Ofren Dialsa</strong></p>
+        <p style="font-size: 12px; color: #999999; margin: 0;">Security notification by <strong>Ofren Dialsa</strong></p>
     </div>
 </div>`
 
@@ -31,7 +51,7 @@ const (
 	DefaultBodyVerifyEmailSuccess         = `
 <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
     <div style="background-color: #10b981; padding: 20px; text-align: center;">
-        <h2 style="color: #ffffff; margin: 0; font-size: 24px;">Account Activated!</h2>
+        <h2 style="color: #ffffff; margin: 0; font-size: 24px;">Account Verified!</h2>
     </div>
     <div style="padding: 30px; line-height: 1.6; color: #333333;">
         <p style="font-size: 16px;">Hello <strong>{{.Name}}</strong>,</p>
@@ -105,7 +125,7 @@ const (
 </div>`
 )
 
-type EmailData struct {
+type EmailVerificationData struct {
 	Name             string
 	VerificationLink string
 }
@@ -128,8 +148,8 @@ type EmailDataPasswordChangeSuccess struct {
 	Name string
 }
 
-func BuildEmailBody(name, verificationLink string) (string, error) {
-	htmlTemplate := DefaultBody
+func BuildEmailBodyRegister(name, verificationLink string) (string, error) {
+	htmlTemplate := DefaultBodyRegister
 
 	tmpl, err := template.New("email").Parse(htmlTemplate)
 	if err != nil {
@@ -137,7 +157,28 @@ func BuildEmailBody(name, verificationLink string) (string, error) {
 	}
 
 	var buf bytes.Buffer
-	data := EmailData{
+	data := EmailVerificationData{
+		Name:             name,
+		VerificationLink: verificationLink,
+	}
+
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return "", err
+	}
+
+	return buf.String(), nil
+}
+
+func BuildEmailBodyResendVerification(name, verificationLink string) (string, error) {
+	htmlTemplate := DefaultBodyResend
+
+	tmpl, err := template.New("email").Parse(htmlTemplate)
+	if err != nil {
+		return "", err
+	}
+
+	var buf bytes.Buffer
+	data := EmailVerificationData{
 		Name:             name,
 		VerificationLink: verificationLink,
 	}

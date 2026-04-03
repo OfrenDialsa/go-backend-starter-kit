@@ -147,6 +147,34 @@ func (_m *LogJobRepository) MarkAsFailed(ctx context.Context, tx pgx.Tx, jobId s
 	return r0
 }
 
+// UpdateStatusToProcessing provides a mock function with given fields: ctx, tx, jobId
+func (_m *LogJobRepository) UpdateStatusToProcessing(ctx context.Context, tx pgx.Tx, jobId string) (int64, error) {
+	ret := _m.Called(ctx, tx, jobId)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateStatusToProcessing")
+	}
+
+	var r0 int64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, pgx.Tx, string) (int64, error)); ok {
+		return rf(ctx, tx, jobId)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, pgx.Tx, string) int64); ok {
+		r0 = rf(ctx, tx, jobId)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, pgx.Tx, string) error); ok {
+		r1 = rf(ctx, tx, jobId)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // NewLogJobRepository creates a new instance of LogJobRepository. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewLogJobRepository(t interface {

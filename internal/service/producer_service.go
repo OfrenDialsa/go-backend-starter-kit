@@ -3,5 +3,5 @@ package service
 import "github/OfrenDialsa/go-gin-starter/internal/dto"
 
 type ProducerService interface {
-	SendEmailRequest(payload dto.EmailTaskPayload) error
+	PublishEvent(event dto.DomainEvent) error
 }

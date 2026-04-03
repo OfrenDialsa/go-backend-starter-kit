@@ -13,17 +13,17 @@ type ProducerService struct {
 	mock.Mock
 }
 
-// SendEmailRequest provides a mock function with given fields: payload
-func (_m *ProducerService) SendEmailRequest(payload dto.EmailTaskPayload) error {
-	ret := _m.Called(payload)
+// PublishEvent provides a mock function with given fields: event
+func (_m *ProducerService) PublishEvent(event dto.DomainEvent) error {
+	ret := _m.Called(event)
 
 	if len(ret) == 0 {
-		panic("no return value specified for SendEmailRequest")
+		panic("no return value specified for PublishEvent")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(dto.EmailTaskPayload) error); ok {
-		r0 = rf(payload)
+	if rf, ok := ret.Get(0).(func(dto.DomainEvent) error); ok {
+		r0 = rf(event)
 	} else {
 		r0 = ret.Error(0)
 	}

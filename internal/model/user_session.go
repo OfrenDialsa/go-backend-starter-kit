@@ -14,4 +14,8 @@ type UserSession struct {
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at"`
 	RevokedAt *time.Time `json:"revoked_at,omitempty"`
+
+	// Field tambahan dari JOIN tabel users
+	Role            string     `json:"role"`
+	EmailVerifiedAt *time.Time `json:"email_verified_at"`
 }
