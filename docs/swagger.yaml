@@ -451,6 +451,8 @@ paths:
           description: Internal Server Error
           schema:
             $ref: '#/definitions/lib.HTTPError'
+      security:
+      - BearerAuth: []
       summary: Resend verification email
       tags:
       - Auth

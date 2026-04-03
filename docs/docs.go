@@ -365,6 +365,11 @@ const docTemplate = `{
         },
         "/api/v1/auth/resend-verification": {
             "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "description": "Resend verification email to user",
                 "consumes": [
                     "application/json"

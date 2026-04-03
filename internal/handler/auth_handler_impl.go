@@ -105,6 +105,7 @@ func (h *AuthHandlerImpl) VerifyEmail(ctx *gin.Context) {
 // @Tags Auth
 // @Accept json
 // @Produce json
+// @Security BearerAuth
 // @Param request body dto.ResendVerificationRequest true "Resend Verification Request"
 // @Success 200 {object} lib.APIResponse
 // @Failure 400 {object} lib.HTTPError

@@ -34,38 +34,40 @@ func setupProducerService(t *testing.T) *producerServiceTestDeps {
 
 	return d
 }
+func TestPublishEvent(t *testing.T) {
 
-func TestSendEmailRequest(t *testing.T) {
-	topic := "test-email-topic"
+	d := setupProducerService(t)
+	topic := d.svc.(*service.ProducerServiceImpl).Env.MessageQueue.NSQ.Producer.Topic.SendEmail.TopicName
 
 	tests := []struct {
 		name      string
-		payload   dto.EmailTaskPayload
+		event     dto.DomainEvent
 		setupMock func(d *producerServiceTestDeps)
 		wantErr   bool
 	}{
 		{
 			name: "Success_PublishVerifyEmail",
-			payload: dto.EmailTaskPayload{
-				Type:  "verify_email",
-				Email: "ofren.dialsa@example.com",
-				Name:  "Ofren Dialsa",
-				Link:  "https://example.com/verify",
+			event: dto.DomainEvent{
+				EventId:   "job-1",
+				EventType: "user_registered",
+				Payload:   []byte(`{"email":"ofren@example.com","name":"Ofren"}`),
 			},
 			setupMock: func(d *producerServiceTestDeps) {
 				d.nsqClient.On("Publish", topic, mock.MatchedBy(func(body []byte) bool {
-					var p dto.EmailTaskPayload
-					err := json.Unmarshal(body, &p)
-					return err == nil && p.Email == "ofren.dialsa@example.com" && p.Type == "verify_email"
+					var e dto.DomainEvent
+					err := json.Unmarshal(body, &e)
+					// Verifikasi bahwa yang di-publish adalah DomainEvent yang benar
+					return err == nil && e.EventType == "user_registered" && e.EventId == "job-1"
 				})).Return(nil)
 			},
 			wantErr: false,
 		},
 		{
 			name: "Success_PublishForgotPassword",
-			payload: dto.EmailTaskPayload{
-				Type:  "forgot_password",
-				Email: "user@example.com",
+			event: dto.DomainEvent{
+				EventId:   "job-2",
+				EventType: "forgot_password",
+				Payload:   []byte(`{"email":"user@example.com"}`),
 			},
 			setupMock: func(d *producerServiceTestDeps) {
 				d.nsqClient.On("Publish", topic, mock.Anything).Return(nil)
@@ -74,8 +76,8 @@ func TestSendEmailRequest(t *testing.T) {
 		},
 		{
 			name: "Error_NSQConnectionRefused",
-			payload: dto.EmailTaskPayload{
-				Type: "any_type",
+			event: dto.DomainEvent{
+				EventType: "any_event",
 			},
 			setupMock: func(d *producerServiceTestDeps) {
 				d.nsqClient.On("Publish", topic, mock.Anything).
@@ -87,10 +89,12 @@ func TestSendEmailRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			d := setupProducerService(t)
-			tt.setupMock(d)
+			// Setup fresh mocks for each sub-test
+			deps := setupProducerService(t)
+			tt.setupMock(deps)
 
-			err := d.svc.SendEmailRequest(tt.payload)
+			// Panggil dengan argument event
+			err := deps.svc.PublishEvent(tt.event)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -99,7 +103,7 @@ func TestSendEmailRequest(t *testing.T) {
 				assert.NoError(t, err)
 			}
 
-			d.nsqClient.AssertExpectations(t)
+			deps.nsqClient.AssertExpectations(t)
 		})
 	}
 }

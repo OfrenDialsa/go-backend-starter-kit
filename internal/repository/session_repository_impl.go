@@ -100,27 +100,25 @@ func (r *sessionRepositoryImpl) GetByToken(ctx context.Context, tokenHash string
 	}
 	return &session, nil
 }
-
 func (r *sessionRepositoryImpl) GetBySessionId(ctx context.Context, sessionID string) (*model.UserSession, error) {
 	query := `
-        SELECT id, session_id, user_id, token_hash, type, ip_address, user_agent, expires_at, created_at, updated_at, revoked_at
-        FROM user_sessions
-        WHERE session_id = $1
+        SELECT 
+            s.id, s.session_id, s.user_id, s.token_hash, s.type, s.ip_address, 
+            s.user_agent, s.expires_at, s.created_at, s.updated_at, s.revoked_at,
+            u.role, u.email_verified_at
+        FROM user_sessions s
+        JOIN users u ON s.user_id = u.user_id
+        WHERE s.session_id = $1 
+          AND s.revoked_at IS NULL 
+          AND s.expires_at > NOW()
     `
 
 	var session model.UserSession
 	err := r.db.Database.Conn.QueryRow(ctx, query, sessionID).Scan(
-		&session.Id,
-		&session.SessionId,
-		&session.UserId,
-		&session.TokenHash,
-		&session.Type,
-		&session.IPAddress,
-		&session.UserAgent,
-		&session.ExpiresAt,
-		&session.CreatedAt,
-		&session.UpdatedAt,
-		&session.RevokedAt,
+		&session.Id, &session.SessionId, &session.UserId, &session.TokenHash,
+		&session.Type, &session.IPAddress, &session.UserAgent, &session.ExpiresAt,
+		&session.CreatedAt, &session.UpdatedAt, &session.RevokedAt,
+		&session.Role, &session.EmailVerifiedAt, // Scan data tambahan
 	)
 
 	if err != nil {
