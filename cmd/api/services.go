@@ -9,8 +9,6 @@ import (
 )
 
 type Services struct {
-	Producer service.ProducerService
-	Consumer service.ConsumerService
 	Auth     service.AuthService
 	User     service.UserService
 }
@@ -21,11 +19,9 @@ func NewServices(
 	r Repositories,
 	ext *external.ExternalService,
 	mailer mailer.SmtpMailer,
-	producerSvc service.ProducerService,
 ) Services {
 	return Services{
-		Consumer: service.NewConsumerService(env, r.LogJob, mailer),
-		Auth:     service.NewAuthService(env, db.Database.Conn, r.User, r.Session, r.LogJob, producerSvc),
+		Auth:     service.NewAuthService(env, db.Database.Conn, mailer, r.User, r.Session),
 		User:     service.NewUserService(env, db.Database.Conn, r.User, r.Session, r.Auditlog, ext.Storage),
 	}
 }

@@ -2,7 +2,6 @@
 
 DC = docker-compose -f docker-compose.yml
 DC_MONITORING = docker-compose -f docker/monitoring/docker-compose.yml
-DC_NSQ = docker-compose -f docker/nsq/docker-compose.yml
 DC_MINIO = docker-compose -f docker/minio/docker-compose.yml
 DB_CONTAINER = postgres-starter
 DB_USER = postgres
@@ -45,18 +44,6 @@ logs-api:
 ps:
 	$(DC) ps
 
-nsq-up:
-	$(DC_NSQ) up -d
-
-nsq-down:
-	$(DC_NSQ) down
-
-nsq-logs:
-	$(DC_NSQ) logs -f
-
-nsq-restart:
-	$(DC_NSQ) restart
-
 minio-up:
 	$(DC_MINIO) up -d
 
@@ -81,15 +68,9 @@ monitor-logs:
 monitor-restart:
 	$(DC_MONITORING) restart
 
-dev-up: nsq-up up
-
-dev-down: down nsq-down
-
-dev-rebuild: nsq-down down nsq-up up-build
-
 dev-logs:
-	@echo "Menampilkan logs dari NSQ dan API..."
-	$(DC_NSQ) logs -f & $(DC) logs -f
+	@echo "Menampilkan logs dari API..."
+	$(DC) logs -f
 
 migrate-create:
 	@if [ -z "$(name)" ]; then \
@@ -113,22 +94,30 @@ db-shell:
 clean:
 	go clean
 
+MOCK_FILTER = 2>&1 | grep -E "Generating mock|Unable to find|could not find|error" | awk '\
+    /Generating mock/ { \
+        split($$0, a, "interface="); \
+        split(a[2], b, " "); \
+        print "  -> Mocking interface:", b[1] \
+    } \
+    /Unable to find|could not find|error/ { \
+        print "  \033[0;31m[!] Error:\033[0m Interface not found" \
+    }'
+	
 mocks:
 	@echo "[>>] Generating repository mocks..."
 	@mkdir -p $(MOCK_DIR)
-	@$(MOCKERY) --all --dir $(REPO_DIR) --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string --quiet 2>/dev/null || true
+	@$(MOCKERY) --all --dir $(REPO_DIR) --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string $(MOCK_FILTER)
 
 	@echo "[>>] Generating specific mocks..."
-	@$(MOCKERY) --name TxStarter --dir $(SERVICE_DIR) --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string --quiet 2>/dev/null || true
-	@$(MOCKERY) --name NsqClient --dir $(SERVICE_DIR) --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string --quiet 2>/dev/null || true
-	@$(MOCKERY) --name StorageService --dir $(STORAGE_DIR) --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string --quiet 2>/dev/null || true
-	@$(MOCKERY) --name ProducerService --dir $(SERVICE_DIR) --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string --quiet 2>/dev/null || true
+	@$(MOCKERY) --name TxStarter --dir $(SERVICE_DIR) --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string $(MOCK_FILTER)
+	@$(MOCKERY) --name StorageService --dir $(STORAGE_DIR) --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string $(MOCK_FILTER)
 	
 	@echo "[>>] Generating external mocks..."
-	@$(MOCKERY) --name Tx --srcpkg github.com/jackc/pgx/v5 --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string --quiet 2>/dev/null || true
+	@$(MOCKERY) --name Tx --srcpkg github.com/jackc/pgx/v5 --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string $(MOCK_FILTER)
 	
 	@echo "[>>] Generating mailer mock..."
-	@$(MOCKERY) --name Sender --dir internal/mailer --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --structname Mailer --case snake --disable-version-string --quiet 2>/dev/null || true
+	@$(MOCKERY) --name Sender --dir internal/mailer --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --structname Mailer --case snake --disable-version-string $(MOCK_FILTER)
 	
 	@echo "[v] Done generating mocks"
 

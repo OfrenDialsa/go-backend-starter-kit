@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github/OfrenDialsa/go-gin-starter/cmd/api"
-	"github/OfrenDialsa/go-gin-starter/cmd/nsq"
 	"github/OfrenDialsa/go-gin-starter/config"
 	"github/OfrenDialsa/go-gin-starter/database"
 	"github/OfrenDialsa/go-gin-starter/internal/metrics"
@@ -43,13 +42,12 @@ func main() {
 		panic(err)
 	}
 
-	producerService := nsq.InitProducer(env)
 	wrapDB := database.InitDB(env)
 
 	config.InitLogger(env)
 	config.InitSwagger(env)
 
-	setup, err := api.Init(env, wrapDB, producerService)
+	setup, err := api.Init(env, wrapDB)
 	if err != nil {
 		log.Panic().Err(err).Msg("Failed to initialize services")
 		panic(err)
@@ -63,12 +61,6 @@ func main() {
 			}
 		}
 	}()
-
-	err = nsq.InitConsumer(env, producerService, setup)
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to initialize consumer")
-		panic(err)
-	}
 
 	log.Info().Msg("Initializing Prometheus Metrics...")
 	metrics.Init()

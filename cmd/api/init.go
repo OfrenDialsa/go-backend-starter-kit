@@ -5,7 +5,6 @@ import (
 	"github/OfrenDialsa/go-gin-starter/database"
 	"github/OfrenDialsa/go-gin-starter/external"
 	"github/OfrenDialsa/go-gin-starter/internal/mailer"
-	"github/OfrenDialsa/go-gin-starter/internal/service"
 	"github/OfrenDialsa/go-gin-starter/middleware"
 	"github/OfrenDialsa/go-gin-starter/router"
 
@@ -23,7 +22,7 @@ type Setup struct {
 	Mailer     mailer.SmtpMailer
 }
 
-func Init(env *config.EnvironmentVariable, wrapDB *database.WrapDB, producerService service.ProducerService) (*Setup, error) {
+func Init(env *config.EnvironmentVariable, wrapDB *database.WrapDB) (*Setup, error) {
 	sender := mailer.NewSMTPMailer(env, env.Mail.From, env.Mail.FromName)
 	repository := NewRepositories(env, wrapDB)
 
@@ -33,7 +32,7 @@ func Init(env *config.EnvironmentVariable, wrapDB *database.WrapDB, producerServ
 		return nil, err
 	}
 
-	service := NewServices(env, wrapDB, repository, extService, sender, producerService)
+	service := NewServices(env, wrapDB, repository, extService, sender)
 
 	handlers := NewHandlers(env, service, repository)
 

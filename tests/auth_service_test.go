@@ -23,10 +23,9 @@ import (
 type authServiceTestDeps struct {
 	userRepo    *mocks.UserRepository
 	sessionRepo *mocks.SessionRepository
-	logJobRepo  *mocks.LogJobRepository
 	txStarter   *mocks.TxStarter
+	mailer      *mocks.Mailer
 	mockTx      *mocks.Tx
-	producerSvc *mocks.ProducerService
 	svc         service.AuthService
 }
 
@@ -41,7 +40,6 @@ func testEnv() *config.EnvironmentVariable {
 	env.JWT.SecretKey.Access = "test-access-secret"
 	env.JWT.SecretKey.Refresh = "test-refresh-secret"
 	env.JWT.Token.AccessLifeTime = 15
-	env.MessageQueue.NSQ.Producer.Topic.SendEmail.TopicName = "test-email-topic"
 	return env
 }
 
@@ -60,19 +58,17 @@ func setupAuthService(t *testing.T) *authServiceTestDeps {
 	d := &authServiceTestDeps{
 		userRepo:    mocks.NewUserRepository(t),
 		sessionRepo: mocks.NewSessionRepository(t),
-		logJobRepo:  mocks.NewLogJobRepository(t),
 		txStarter:   mocks.NewTxStarter(t),
 		mockTx:      mocks.NewTx(t),
-		producerSvc: mocks.NewProducerService(t),
+		mailer:      mocks.NewMailer(t),
 	}
 
 	d.svc = service.NewAuthService(
 		testEnv(),
 		d.txStarter,
+		d.mailer,
 		d.userRepo,
 		d.sessionRepo,
-		d.logJobRepo,
-		d.producerSvc,
 	)
 	return d
 }
@@ -97,18 +93,14 @@ func TestRegister(t *testing.T) {
 			},
 			setupMock: func(d *authServiceTestDeps) {
 				d.userRepo.On("GetByEmailOrUsername", ctx, "test@example.com", "testuser").Return(nil, nil)
-				d.txStarter.On("Begin", ctx).Return(d.mockTx, nil)
 
+				d.txStarter.On("Begin", ctx).Return(d.mockTx, nil)
 				d.userRepo.On("Create", ctx, d.mockTx, mock.AnythingOfType("*model.User")).Return(nil)
 				d.sessionRepo.On("Create", ctx, d.mockTx, mock.AnythingOfType("*model.UserSession")).Return(nil)
-				d.logJobRepo.On("Create", ctx, d.mockTx, mock.AnythingOfType("*model.LogJob")).Return(nil)
-
 				d.mockTx.On("Commit", ctx).Return(nil)
 				d.mockTx.On("Rollback", ctx).Return(nil).Maybe()
 
-				d.producerSvc.On("PublishEvent", mock.MatchedBy(func(p dto.DomainEvent) bool {
-					return p.EventType == lib.NSQ_USER_REGISTERED_EVENT
-				})).Return(nil)
+				d.mailer.On("Send", mock.AnythingOfType("dto.MailerRequest")).Return("success", nil)
 			},
 			wantErr: false,
 		},
@@ -150,13 +142,14 @@ func TestRegister(t *testing.T) {
 				assert.NoError(t, err)
 				assert.NotNil(t, resp)
 				assert.Equal(t, tt.req.Email, resp.User.Email)
+				assert.Equal(t, tt.req.Username, resp.User.Username)
 			}
 
 			d.userRepo.AssertExpectations(t)
 			d.sessionRepo.AssertExpectations(t)
-			d.logJobRepo.AssertExpectations(t)
-			d.producerSvc.AssertExpectations(t)
 			d.mockTx.AssertExpectations(t)
+			d.mailer.AssertExpectations(t)
+			d.txStarter.AssertExpectations(t)
 		})
 	}
 }
@@ -191,11 +184,10 @@ func TestVerifyEmail(t *testing.T) {
 				d.txStarter.On("Begin", ctx).Return(d.mockTx, nil)
 				d.userRepo.On("MarkVerifiedEmail", ctx, d.mockTx, userId).Return(nil)
 				d.sessionRepo.On("DeleteSession", ctx, d.mockTx, session.SessionId).Return(nil)
-				d.logJobRepo.On("Create", ctx, d.mockTx, mock.AnythingOfType("*model.LogJob")).Return(nil)
 				d.mockTx.On("Commit", ctx).Return(nil)
 				d.mockTx.On("Rollback", ctx).Return(nil).Maybe()
 
-				d.producerSvc.On("PublishEvent", mock.Anything).Return(nil)
+				d.mailer.On("Send", mock.AnythingOfType("dto.MailerRequest")).Return("success", nil)
 			},
 			wantErr: false,
 		},
@@ -256,9 +248,9 @@ func TestVerifyEmail(t *testing.T) {
 
 			d.userRepo.AssertExpectations(t)
 			d.sessionRepo.AssertExpectations(t)
-			d.logJobRepo.AssertExpectations(t)
-			d.producerSvc.AssertExpectations(t)
 			d.mockTx.AssertExpectations(t)
+			d.mailer.AssertExpectations(t)
+			d.txStarter.AssertExpectations(t)
 		})
 	}
 }
@@ -284,24 +276,19 @@ func TestResendVerificationEmail(t *testing.T) {
 					UserId:          "user-ulid",
 					Email:           email,
 					Name:            "Ofren Dialsa",
-					EmailVerifiedAt: nil, // Belum verifikasi
+					EmailVerifiedAt: nil,
 				}
 
 				d.userRepo.On("GetByEmail", ctx, email).Return(user, nil)
+
 				d.txStarter.On("Begin", ctx).Return(d.mockTx, nil)
-
-				// Cleanup token lama
 				d.sessionRepo.On("DeleteByType", ctx, d.mockTx, user.UserId, "verify_email").Return(nil)
-
-				// Simpan session baru & log job
 				d.sessionRepo.On("Create", ctx, d.mockTx, mock.AnythingOfType("*model.UserSession")).Return(nil)
-				d.logJobRepo.On("Create", ctx, d.mockTx, mock.AnythingOfType("*model.LogJob")).Return(nil)
-
 				d.mockTx.On("Commit", ctx).Return(nil)
 				d.mockTx.On("Rollback", ctx).Return(nil).Maybe()
 
-				// Kirim ke NSQ
-				d.producerSvc.On("PublishEvent", mock.AnythingOfType("dto.DomainEvent")).Return(nil)
+				d.mailer.On("Send", mock.AnythingOfType("dto.MailerRequest")).Return("success", nil)
+
 			},
 			wantErr: false,
 		},
@@ -322,7 +309,7 @@ func TestResendVerificationEmail(t *testing.T) {
 				user := &model.User{
 					UserId:          "user-ulid",
 					Email:           email,
-					EmailVerifiedAt: &now, // Sudah verifikasi
+					EmailVerifiedAt: &now,
 				}
 				d.userRepo.On("GetByEmail", ctx, email).Return(user, nil)
 			},
@@ -338,28 +325,6 @@ func TestResendVerificationEmail(t *testing.T) {
 				d.txStarter.On("Begin", ctx).Return(nil, errors.New("db connection lost"))
 			},
 			wantErr: true,
-		},
-		{
-			name: "Success_ButNSQFailed_ShouldMarkJobAsFailed",
-			req:  &dto.ResendVerificationRequest{Email: email},
-			setupMock: func(d *authServiceTestDeps) {
-				user := &model.User{UserId: "u1", Email: email}
-				d.userRepo.On("GetByEmail", ctx, email).Return(user, nil)
-				d.txStarter.On("Begin", ctx).Return(d.mockTx, nil)
-
-				d.sessionRepo.On("DeleteByType", ctx, d.mockTx, mock.Anything, mock.Anything).Return(nil)
-				d.sessionRepo.On("Create", ctx, d.mockTx, mock.Anything).Return(nil)
-				d.logJobRepo.On("Create", ctx, d.mockTx, mock.Anything).Return(nil)
-
-				d.mockTx.On("Commit", ctx).Return(nil)
-				d.mockTx.On("Rollback", ctx).Return(nil).Maybe()
-
-				// Simulasi NSQ Down
-				d.producerSvc.On("PublishEvent", mock.Anything).Return(errors.New("nsq error"))
-				// Harus memanggil MarkAsFailed
-				d.logJobRepo.On("MarkAsFailed", ctx, nil, mock.Anything, "nsq error").Return(nil)
-			},
-			wantErr: false, // Return nil karena job sudah di-commit di DB
 		},
 	}
 
@@ -381,8 +346,7 @@ func TestResendVerificationEmail(t *testing.T) {
 
 			d.userRepo.AssertExpectations(t)
 			d.sessionRepo.AssertExpectations(t)
-			d.producerSvc.AssertExpectations(t)
-			d.logJobRepo.AssertExpectations(t)
+			d.mailer.AssertExpectations(t)
 		})
 	}
 }
@@ -546,14 +510,11 @@ func TestForgotPassword(t *testing.T) {
 				d.sessionRepo.On("Create", ctx, d.mockTx, mock.MatchedBy(func(s *model.UserSession) bool {
 					return s.UserId == user.UserId && s.Type == "reset_password"
 				})).Return(nil)
-				d.logJobRepo.On("Create", ctx, d.mockTx, mock.AnythingOfType("*model.LogJob")).Return(nil)
 
 				d.mockTx.On("Commit", ctx).Return(nil)
 				d.mockTx.On("Rollback", ctx).Return(nil).Maybe()
 
-				d.producerSvc.On("PublishEvent", mock.MatchedBy(func(p dto.DomainEvent) bool {
-					return p.EventType == lib.NSQ_PASSWORD_RESET_REQUESTED_EVENT
-				})).Return(nil)
+				d.mailer.On("Send", mock.AnythingOfType("dto.MailerRequest")).Return("success", nil)
 			},
 			wantErr: false,
 		},
@@ -596,23 +557,6 @@ func TestForgotPassword(t *testing.T) {
 			},
 			wantErr: true,
 		},
-		{
-			name:  "Success_ProducerFailed_ShouldMarkJobAsFailed",
-			email: email,
-			setupMock: func(d *authServiceTestDeps) {
-				user := &model.User{UserId: "u1", Email: email}
-				d.userRepo.On("GetByEmail", ctx, email).Return(user, nil)
-				d.txStarter.On("Begin", ctx).Return(d.mockTx, nil)
-				d.sessionRepo.On("Create", ctx, d.mockTx, mock.Anything).Return(nil)
-				d.logJobRepo.On("Create", ctx, d.mockTx, mock.Anything).Return(nil)
-				d.mockTx.On("Commit", ctx).Return(nil)
-				d.mockTx.On("Rollback", ctx).Return(nil).Maybe()
-
-				d.producerSvc.On("PublishEvent", mock.Anything).Return(errors.New("nsq down"))
-				d.logJobRepo.On("MarkAsFailed", ctx, nil, mock.Anything, "nsq down").Return(nil)
-			},
-			wantErr: false,
-		},
 	}
 
 	for _, tt := range tests {
@@ -630,9 +574,8 @@ func TestForgotPassword(t *testing.T) {
 
 			d.userRepo.AssertExpectations(t)
 			d.sessionRepo.AssertExpectations(t)
-			d.logJobRepo.AssertExpectations(t)
-			d.producerSvc.AssertExpectations(t)
 			d.mockTx.AssertExpectations(t)
+			d.mailer.AssertExpectations(t)
 		})
 	}
 }
@@ -743,6 +686,7 @@ func TestRefreshToken(t *testing.T) {
 		})
 	}
 }
+
 func TestResetPassword(t *testing.T) {
 	ctx := context.Background()
 	validToken := "valid-reset-token-123"
@@ -777,12 +721,11 @@ func TestResetPassword(t *testing.T) {
 				d.userRepo.On("UpdatePassword", ctx, d.mockTx, userId, mock.AnythingOfType("string")).Return(nil)
 				d.sessionRepo.On("RevokeAllUserSessions", ctx, d.mockTx, userId).Return(nil)
 				d.sessionRepo.On("DeleteSession", ctx, d.mockTx, "sess-99").Return(nil)
-				d.logJobRepo.On("Create", ctx, d.mockTx, mock.AnythingOfType("*model.LogJob")).Return(nil)
 
 				d.mockTx.On("Commit", ctx).Return(nil)
 				d.mockTx.On("Rollback", ctx).Return(nil).Maybe()
 
-				d.producerSvc.On("PublishEvent", mock.Anything).Return(nil)
+				d.mailer.On("Send", mock.AnythingOfType("dto.MailerRequest")).Return("success", nil)
 			},
 			wantErr: false,
 		},
@@ -829,31 +772,6 @@ func TestResetPassword(t *testing.T) {
 			},
 			wantErr: true,
 		},
-		{
-			name:     "Error_ProducerFailed_ShouldMarkJobAsFailed",
-			token:    validToken,
-			password: newPassword,
-			setupMock: func(d *authServiceTestDeps) {
-				session := &model.UserSession{SessionId: "s-reset", UserId: userId, ExpiresAt: time.Now().Add(1 * time.Hour)}
-				user := &model.User{UserId: userId, Email: "ofren@mail.com"}
-
-				d.sessionRepo.On("GetByToken", ctx, hashedToken, "reset_password").Return(session, nil)
-				d.userRepo.On("GetByUserId", ctx, userId).Return(user, nil)
-
-				d.txStarter.On("Begin", ctx).Return(d.mockTx, nil)
-				d.userRepo.On("UpdatePassword", ctx, d.mockTx, userId, mock.Anything).Return(nil)
-				d.sessionRepo.On("RevokeAllUserSessions", ctx, d.mockTx, userId).Return(nil)
-				d.sessionRepo.On("DeleteSession", ctx, d.mockTx, "s-reset").Return(nil)
-				d.logJobRepo.On("Create", ctx, d.mockTx, mock.Anything).Return(nil)
-				d.mockTx.On("Commit", ctx).Return(nil)
-				d.mockTx.On("Rollback", ctx).Return(nil).Maybe()
-
-				d.producerSvc.On("PublishEvent", mock.Anything).Return(errors.New("nsq error"))
-				d.logJobRepo.On("MarkAsFailed", ctx, nil, mock.Anything, "nsq error").Return(nil)
-			},
-
-			wantErr: false,
-		},
 	}
 
 	for _, tt := range tests {
@@ -874,9 +792,8 @@ func TestResetPassword(t *testing.T) {
 
 			d.userRepo.AssertExpectations(t)
 			d.sessionRepo.AssertExpectations(t)
-			d.logJobRepo.AssertExpectations(t)
-			d.producerSvc.AssertExpectations(t)
 			d.mockTx.AssertExpectations(t)
+			d.mailer.AssertExpectations(t)
 		})
 	}
 }
