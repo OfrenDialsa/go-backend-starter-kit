@@ -86,28 +86,6 @@ type EnvironmentVariable struct {
 		VerifyEmailURL   string `mapstructure:"VERIFY_EMAIL_URL"`
 		FrontendURL      string `mapstructure:"FRONTEND_URL"`
 	} `mapstructure:"EXTERNAL"`
-	MessageQueue struct {
-		NSQ struct {
-			Host     string `mapstructure:"HOST"`
-			Producer struct {
-				Topic struct {
-					SendEmail struct {
-						TopicName string `mapstructure:"TOPIC_NAME"`
-					} `mapstructure:"SEND_EMAIL"`
-				} `mapstructure:"TOPIC"`
-			} `mapstructure:"PRODUCER"`
-			Consumer struct {
-				Email struct {
-					ChannelName string `mapstructure:"CHANNEL_NAME"`
-					Topic       struct {
-						SendEmail struct {
-							TopicName string `mapstructure:"TOPIC_NAME"`
-						} `mapstructure:"SEND_EMAIL"`
-					} `mapstructure:"TOPIC"`
-				} `mapstructure:"EMAIL"`
-			} `mapstructure:"CONSUMER"`
-		} `mapstructure:"NSQ"`
-	} `mapstructure:"MESSAGE_QUEUE"`
 	Mail struct {
 		From     string `mapstructure:"FROM"`
 		FromName string `mapstructure:"FROM_NAME"`

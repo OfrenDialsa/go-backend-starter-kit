@@ -2,10 +2,10 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"github/OfrenDialsa/go-gin-starter/config"
 	"github/OfrenDialsa/go-gin-starter/internal/dto"
+	"github/OfrenDialsa/go-gin-starter/internal/mailer"
 	"github/OfrenDialsa/go-gin-starter/internal/metrics"
 	"github/OfrenDialsa/go-gin-starter/internal/model"
 	"github/OfrenDialsa/go-gin-starter/internal/repository"
@@ -19,28 +19,25 @@ import (
 
 type authServiceImpl struct {
 	env         *config.EnvironmentVariable
+	mailer      mailer.SmtpMailer
 	txStarter   TxStarter
 	userRepo    repository.UserRepository
 	sessionRepo repository.SessionRepository
-	logJobRepo  repository.LogJobRepository
-	producerSvc ProducerService
 }
 
 func NewAuthService(
 	env *config.EnvironmentVariable,
 	txStarter TxStarter,
+	mailer mailer.SmtpMailer,
 	userRepo repository.UserRepository,
 	sessionRepo repository.SessionRepository,
-	logJobRepo repository.LogJobRepository,
-	producerSvc ProducerService,
 ) AuthService {
 	return &authServiceImpl{
 		env:         env,
 		txStarter:   txStarter,
+		mailer:      mailer,
 		userRepo:    userRepo,
 		sessionRepo: sessionRepo,
-		logJobRepo:  logJobRepo,
-		producerSvc: producerSvc,
 	}
 }
 
@@ -126,54 +123,27 @@ func (s *authServiceImpl) Register(ctx context.Context, userAgent, ipAddress str
 		return nil, fmt.Errorf("failed to create reset password session: %w", err)
 	}
 
-	jobId := utils.GenerateULID()
-
-	mailPayload := dto.EmailSendPayload{
-		JobId: jobId,
-		Type:  lib.NSQ_USER_REGISTERED_EVENT,
-		Email: user.Email,
-		Name:  user.Name,
-		Token: verifToken,
-	}
-
-	payloadBytes, err := json.Marshal(mailPayload)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal json: %w", err)
-	}
-
-	event := dto.DomainEvent{
-		EventId:    jobId,
-		EventType:  lib.NSQ_USER_REGISTERED_EVENT,
-		Payload:    payloadBytes,
-		OccurredAt: time.Now(),
-	}
-
-	jobPayload := fmt.Sprintf(`{"user_id": "%s", "action": "user_registration"}`, user.UserId)
-
-	job := &model.LogJob{
-		JobId:       event.EventId,
-		Type:        event.EventType,
-		Payload:     []byte(jobPayload),
-		Status:      "pending",
-		RetryCount:  0,
-		ScheduledAt: time.Now(),
-		CreatedAt:   time.Now(),
-	}
-
-	err = s.logJobRepo.Create(ctx, tx, job)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create log job: %w", err)
-	}
-
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	err = s.producerSvc.PublishEvent(event)
-
+	verifLink := fmt.Sprintf("%s?token=%s", s.env.External.VerifyEmailURL, hashedToken)
+	emailBody, err := lib.BuildEmailBodyRegister(user.Name, verifLink)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to publish email to NSQ")
-		_ = s.logJobRepo.MarkAsFailed(ctx, nil, job.JobId, err.Error())
+		return nil, err
+	}
+
+	mailData := dto.MailerRequest{
+		To:          []string{user.Email},
+		Subject:     lib.DefaultEmailSubjectRegister,
+		Body:        emailBody,
+		Attachments: []string{},
+	}
+
+	_, err = s.mailer.Send(mailData)
+	if err != nil {
+		log.Error().Err(err).Msg("error in sending email")
+		return
 	}
 
 	return &dto.RegisterResponse{
@@ -217,6 +187,25 @@ func (s *authServiceImpl) ResendVerificationEmail(ctx context.Context, userAgent
 	hashedToken := utils.HashTokenSHA256(verifToken)
 	expiresAt := time.Now().Add(time.Hour)
 
+	verifLink := fmt.Sprintf("%s?token=%s", s.env.External.VerifyEmailURL, hashedToken)
+	emailBody, err := lib.BuildEmailBodyResendVerification(user.Name, verifLink)
+	if err != nil {
+		return err
+	}
+
+	mailData := dto.MailerRequest{
+		To:          []string{user.Email},
+		Subject:     lib.DefaultEmailSubjectResend,
+		Body:        emailBody,
+		Attachments: []string{},
+	}
+
+	_, err = s.mailer.Send(mailData)
+	if err != nil {
+		log.Error().Err(err).Msg("error in sending email")
+		return
+	}
+
 	session := &model.UserSession{
 		SessionId: utils.GenerateULID(),
 		UserId:    user.UserId,
@@ -227,38 +216,6 @@ func (s *authServiceImpl) ResendVerificationEmail(ctx context.Context, userAgent
 		Type:      "verify_email",
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
-	}
-
-	jobId := utils.GenerateULID()
-	mailPayload := dto.EmailSendPayload{
-		JobId: jobId,
-		Type:  lib.NSQ_RESEND_VERIFICATION_EVENT,
-		Email: user.Email,
-		Name:  user.Name,
-		Token: verifToken,
-	}
-
-	payloadBytes, err := json.Marshal(mailPayload)
-	if err != nil {
-		return fmt.Errorf("failed to marshal json: %w", err)
-	}
-
-	event := dto.DomainEvent{
-		EventId:    jobId,
-		EventType:  lib.NSQ_RESEND_VERIFICATION_EVENT,
-		Payload:    payloadBytes,
-		OccurredAt: time.Now(),
-	}
-
-	jobPayload := fmt.Sprintf(`{"user_id": "%s", "action": "resend_email_verification"}`, user.UserId)
-
-	job := &model.LogJob{
-		JobId:       event.EventId,
-		Type:        event.EventType,
-		Payload:     []byte(jobPayload),
-		Status:      "pending",
-		ScheduledAt: time.Now(),
-		CreatedAt:   time.Now(),
 	}
 
 	tx, err := s.txStarter.Begin(ctx)
@@ -277,19 +234,8 @@ func (s *authServiceImpl) ResendVerificationEmail(ctx context.Context, userAgent
 		return fmt.Errorf("failed to create verification session: %w", err)
 	}
 
-	err = s.logJobRepo.Create(ctx, tx, job)
-	if err != nil {
-		return fmt.Errorf("failed to create log job: %w", err)
-	}
-
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	err = s.producerSvc.PublishEvent(event)
-	if err != nil {
-		log.Error().Err(err).Msg("failed to publish resend email to NSQ")
-		s.logJobRepo.MarkAsFailed(ctx, nil, jobId, err.Error())
 	}
 
 	return nil
@@ -311,35 +257,6 @@ func (s *authServiceImpl) VerifyEmail(ctx context.Context, token string) error {
 	if err != nil {
 		return fmt.Errorf("failed to retrieve user: %w", err)
 	}
-	jobId := utils.GenerateULID()
-	mailPayload := dto.EmailSendPayload{
-		JobId: jobId,
-		Type:  lib.NSQ_EMAIL_VERIFIED_EVENT,
-		Email: user.Email,
-		Name:  user.Name,
-	}
-
-	payloadBytes, err := json.Marshal(mailPayload)
-	if err != nil {
-		return fmt.Errorf("failed to marshal json: %w", err)
-	}
-
-	event := dto.DomainEvent{
-		EventId:    jobId,
-		EventType:  lib.NSQ_EMAIL_VERIFIED_EVENT,
-		Payload:    payloadBytes,
-		OccurredAt: time.Now(),
-	}
-
-	job := &model.LogJob{
-		JobId:       event.EventId,
-		Type:        event.EventType,
-		Payload:     payloadBytes,
-		Status:      "pending",
-		RetryCount:  0,
-		ScheduledAt: time.Now(),
-		CreatedAt:   time.Now(),
-	}
 
 	//start transaction
 	tx, err := s.txStarter.Begin(ctx)
@@ -358,19 +275,26 @@ func (s *authServiceImpl) VerifyEmail(ctx context.Context, token string) error {
 		return fmt.Errorf("failed to cleanup session: %w", err)
 	}
 
-	err = s.logJobRepo.Create(ctx, tx, job)
-	if err != nil {
-		return fmt.Errorf("failed to create log job: %w", err)
-	}
-
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	err = s.producerSvc.PublishEvent(event)
+	emailBody, err := lib.BuildEmailBodyVerifyEmailSuccess(user.Name, s.env.External.FrontendURL+"/login")
 	if err != nil {
-		log.Error().Err(err).Msg("failed to publish email to NSQ")
-		_ = s.logJobRepo.MarkAsFailed(ctx, nil, job.JobId, err.Error())
+		return err
+	}
+
+	mailData := dto.MailerRequest{
+		To:          []string{user.Email},
+		Subject:     lib.DefaultEmailSubjectVerifyEmailSuccess,
+		Body:        emailBody,
+		Attachments: []string{},
+	}
+
+	_, err = s.mailer.Send(mailData)
+	if err != nil {
+		log.Error().Err(err).Msg("error in sending email")
+		return err
 	}
 
 	return nil
@@ -495,39 +419,6 @@ func (s *authServiceImpl) ForgotPassword(ctx context.Context, email, userAgent, 
 		UpdatedAt: time.Now(),
 	}
 
-	jobId := utils.GenerateULID()
-	mailPayload := dto.EmailSendPayload{
-		JobId: jobId,
-		Type:  lib.NSQ_PASSWORD_RESET_REQUESTED_EVENT,
-		Email: user.Email,
-		Name:  user.Name,
-		Token: resetToken,
-	}
-
-	payloadBytes, err := json.Marshal(mailPayload)
-	if err != nil {
-		return fmt.Errorf("failed to marshal json: %w", err)
-	}
-
-	event := dto.DomainEvent{
-		EventId:    jobId,
-		EventType:  lib.NSQ_PASSWORD_RESET_REQUESTED_EVENT,
-		Payload:    payloadBytes,
-		OccurredAt: time.Now(),
-	}
-
-	jobPayload := fmt.Sprintf(`{"user_id": "%s", "action": "forgot_password"}`, user.UserId)
-
-	job := &model.LogJob{
-		JobId:       event.EventId,
-		Type:        event.EventType,
-		Payload:     []byte(jobPayload),
-		Status:      "pending",
-		RetryCount:  0,
-		ScheduledAt: time.Now(),
-		CreatedAt:   time.Now(),
-	}
-
 	tx, err := s.txStarter.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -539,22 +430,24 @@ func (s *authServiceImpl) ForgotPassword(ctx context.Context, email, userAgent, 
 		return fmt.Errorf("failed to create reset password session: %w", err)
 	}
 
-	err = s.logJobRepo.Create(ctx, tx, job)
-	if err != nil {
-		return fmt.Errorf("failed to create log job: %w", err)
-	}
-
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	err = s.producerSvc.PublishEvent(event)
-	if err != nil {
-		log.Error().Err(err).
-			Str("job_id", job.JobId).
-			Msg("failed to publish forgot password email to NSQ")
+	resetLink := fmt.Sprintf("%s?token=%s", s.env.External.ResetPasswordURL, hashedToken)
+	emailBody, err := lib.BuildEmailBodyResetPassword(user.Name, resetLink)
 
-		s.logJobRepo.MarkAsFailed(ctx, nil, job.JobId, err.Error())
+	mailData := dto.MailerRequest{
+		To:          []string{user.Email},
+		Subject:     lib.DefaultEmailSubjectResetPassword,
+		Body:        emailBody,
+		Attachments: []string{},
+	}
+
+	_, err = s.mailer.Send(mailData)
+	if err != nil {
+		log.Error().Err(err).Msg("error in sending email")
+		return err
 	}
 
 	return nil
@@ -663,37 +556,6 @@ func (s *authServiceImpl) ResetPassword(ctx context.Context, token string, newPa
 		return fmt.Errorf("failed to hash new password: %w", err)
 	}
 
-	jobId := utils.GenerateULID()
-	mailPayload := dto.EmailSendPayload{
-		JobId: jobId,
-		Type:  lib.NSQ_PASSWORD_RESET_SUCCESS_EVENT,
-		Email: user.Email,
-		Name:  user.Name,
-	}
-
-	payloadBytes, err := json.Marshal(mailPayload)
-	if err != nil {
-		return fmt.Errorf("failed to marshal json: %w", err)
-	}
-
-	event := dto.DomainEvent{
-		EventId:    jobId,
-		EventType:  lib.NSQ_PASSWORD_RESET_SUCCESS_EVENT,
-		Payload:    payloadBytes,
-		OccurredAt: time.Now(),
-	}
-
-	jobPayload := fmt.Sprintf(`{"user_id": "%s", "action": "reset_password"}`, user.UserId)
-	job := &model.LogJob{
-		JobId:       event.EventId,
-		Type:        event.EventType,
-		Payload:     []byte(jobPayload),
-		Status:      "pending",
-		RetryCount:  0,
-		ScheduledAt: time.Now(),
-		CreatedAt:   time.Now(),
-	}
-
 	tx, err := s.txStarter.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -715,19 +577,23 @@ func (s *authServiceImpl) ResetPassword(ctx context.Context, token string, newPa
 		return fmt.Errorf("failed to delete reset session: %w", err)
 	}
 
-	err = s.logJobRepo.Create(ctx, tx, job)
-	if err != nil {
-		return fmt.Errorf("failed to create log job: %w", err)
-	}
-
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	err = s.producerSvc.PublishEvent(event)
+	emailBody, err := lib.BuildEmailBodyPasswordResetSuccess(user.Name)
+
+	mailData := dto.MailerRequest{
+		To:          []string{user.Email},
+		Subject:     lib.DefaultEmailSubjectPasswordResetSuccess,
+		Body:        emailBody,
+		Attachments: []string{},
+	}
+
+	_, err = s.mailer.Send(mailData)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to publish email to NSQ")
-		_ = s.logJobRepo.MarkAsFailed(ctx, nil, job.JobId, err.Error())
+		log.Error().Err(err).Msg("error in sending email")
+		return err
 	}
 
 	log.Info().
