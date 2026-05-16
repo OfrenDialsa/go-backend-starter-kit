@@ -148,12 +148,13 @@ func (s *authServiceImpl) Register(ctx context.Context, userAgent, ipAddress str
 
 	return &dto.RegisterResponse{
 		User: dto.UserData{
-			UserId:    user.UserId,
-			Email:     user.Email,
-			Username:  user.Username,
-			Name:      user.Name,
-			Status:    user.Status,
-			AvatarURL: user.AvatarURL,
+			UserId:          user.UserId,
+			Email:           user.Email,
+			Username:        user.Username,
+			Name:            user.Name,
+			Status:          user.Status,
+			AvatarURL:       user.AvatarURL,
+			EmailVerifiedAt: user.EmailVerifiedAt,
 		},
 	}, nil
 }
@@ -372,12 +373,13 @@ func (s *authServiceImpl) Login(ctx context.Context, req dto.LoginRequest) (res 
 		ExpiresIn:    tokens.ExpiresIn,
 		TokenType:    "Bearer",
 		User: dto.UserData{
-			UserId:    user.UserId,
-			Email:     user.Email,
-			Username:  user.Username,
-			Name:      user.Name,
-			Status:    user.Status,
-			AvatarURL: user.AvatarURL,
+			UserId:          user.UserId,
+			Email:           user.Email,
+			Username:        user.Username,
+			Name:            user.Name,
+			Status:          user.Status,
+			AvatarURL:       user.AvatarURL,
+			EmailVerifiedAt: user.EmailVerifiedAt,
 		},
 	}, nil
 }
