@@ -5,6 +5,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/viper"
 )
@@ -46,17 +47,17 @@ func LoadEnv() (env *EnvironmentVariable, err error) {
 
 type EnvironmentVariable struct {
 	App struct {
-		Host string `mapstructure:"HOST"`
-		Mode string `mapstructure:"MODE"`
+		Host string `mapstructure:"HOST" validate:"required"`
+		Mode string `mapstructure:"MODE" validate:"required"`
 	} `mapstructure:"APP"`
 	Database struct {
-		Timeout  time.Duration `mapstructure:"TIMEOUT"`
+		Timeout  time.Duration `mapstructure:"TIMEOUT" validate:"required"`
 		Postgres struct {
-			Host     string `mapstructure:"HOST"`
-			Port     string `mapstructure:"PORT"`
-			Name     string `mapstructure:"NAME"`
-			Username string `mapstructure:"USERNAME"`
-			Password string `mapstructure:"PASSWORD"`
+			Host     string `mapstructure:"HOST" validate:"required"`
+			Port     string `mapstructure:"PORT" validate:"required"`
+			Name     string `mapstructure:"NAME" validate:"required"`
+			Username string `mapstructure:"USERNAME" validate:"required"`
+			Password string `mapstructure:"PASSWORD" validate:"required"`
 		} `mapstructure:"POSTGRES"`
 		Redis struct {
 			IsEnabled bool   `mapstructure:"IS_ENABLED"`
@@ -97,7 +98,7 @@ type EnvironmentVariable struct {
 		} `mapstructure:"SMTP"`
 	} `mapstructure:"MAIL"`
 	Storage struct {
-		Type string `mapstructure:"TYPE"`
+		Type string `mapstructure:"TYPE" validate:"required"`
 		S3   struct {
 			Endpoint     string `mapstructure:"ENDPOINT"`
 			Region       string `mapstructure:"REGION"`
@@ -116,5 +117,11 @@ type EnvironmentVariable struct {
 }
 
 func (e *EnvironmentVariable) validateRequiredValue() error {
+	validate := validator.New()
+
+	if err := validate.Struct(e); err != nil {
+		return err
+	}
+
 	return nil
 }
