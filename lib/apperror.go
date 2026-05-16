@@ -157,7 +157,7 @@ var (
 		HTTPStatus: http.StatusNotFound,
 	}
 
-	ErrToooManyRequest = &AppError{
+	ErrTooManyRequest = &AppError{
 		Code:       "TOO_MANY_REQUEST",
 		Message:    "Too many request, please try again later",
 		HTTPStatus: http.StatusTooManyRequests,

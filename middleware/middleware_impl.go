@@ -8,17 +8,17 @@ import (
 	"github/OfrenDialsa/go-gin-starter/lib"
 	"github/OfrenDialsa/go-gin-starter/utils"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/redis/go-redis/v9"
 )
 
 type MiddlewareImpl struct {
 	env         *config.EnvironmentVariable
-	redis       *redis.Client
 	userRepo    repository.UserRepository
 	sessionRepo repository.SessionRepository
+	store       sync.Map
 }
 
 func NewMiddleware(
@@ -29,7 +29,6 @@ func NewMiddleware(
 ) Middleware {
 	return &MiddlewareImpl{
 		env:         env,
-		redis:       db.Redis.Conn,
 		userRepo:    userRepo,
 		sessionRepo: sessionRepo,
 	}
@@ -106,33 +105,69 @@ func (m *MiddlewareImpl) RateLimit(limit int, window time.Duration) gin.HandlerF
 
 		key := "rate_limit:" + c.FullPath() + ":" + identifier
 
-		now := time.Now().UnixNano()
-		boundary := time.Now().Add(-window).UnixNano()
-		pipe := m.redis.TxPipeline()
-		pipe.ZRemRangeByScore(c, key, "0", fmt.Sprintf("%d", boundary))
-		countRes := pipe.ZCard(c, key)
+		now := time.Now()
+		windowSec := window.Seconds()
 
-		pipe.ZAdd(c, key, redis.Z{
-			Score:  float64(now),
-			Member: now,
+		currWindowStart := now.Truncate(window).Unix()
+
+		actual, _ := m.store.LoadOrStore(key, &utils.CounterWindow{
+			CurrWindow: currWindowStart,
 		})
 
-		pipe.Expire(c, key, window)
-		_, err := pipe.Exec(c)
-		if err != nil {
-			lib.RespondError(c, lib.ErrInternalServer)
+		w := actual.(*utils.CounterWindow)
+
+		w.Mu.Lock()
+
+		if currWindowStart > w.CurrWindow {
+			if currWindowStart-w.CurrWindow == int64(window.Seconds()) {
+				w.PrevCount = w.CurrCount
+			} else {
+				w.PrevCount = 0
+			}
+			w.LastWindow = w.CurrWindow
+			w.CurrWindow = currWindowStart
+			w.CurrCount = 0
+		}
+
+		timePassed := now.Sub(time.Unix(w.CurrWindow, 0)).Seconds()
+		weight := (windowSec - timePassed) / windowSec
+
+		count := int(float64(w.PrevCount)*weight) + w.CurrCount
+
+		if count >= limit {
+			w.Mu.Unlock()
+
+			c.Header("X-RateLimit-Limit", fmt.Sprintf("%d", limit))
+			lib.RespondError(c, lib.ErrTooManyRequest)
 			c.Abort()
 			return
 		}
 
-		currentCount := countRes.Val()
-		if int(currentCount) >= limit {
-			c.Header("X-RateLimit-Limit", fmt.Sprintf("%d", limit))
-			lib.RespondError(c, lib.ErrToooManyRequest)
-			c.Abort()
-			return
-		}
+		w.CurrCount++
+		w.Mu.Unlock()
 
 		c.Next()
 	}
+}
+
+func (m *MiddlewareImpl) CleanRateLimit(interval time.Duration, maxAge time.Duration) {
+	go func() {
+		for {
+			time.Sleep(interval)
+			now := time.Now().Unix()
+
+			m.store.Range(func(key, value interface{}) bool {
+				w := value.(*utils.CounterWindow)
+				w.Mu.Lock()
+
+				if now-w.CurrWindow > int64(maxAge.Seconds()) {
+					w.Mu.Unlock()
+					m.store.Delete(key)
+				} else {
+					w.Mu.Unlock()
+				}
+				return true
+			})
+		}
+	}()
 }

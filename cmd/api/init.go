@@ -7,6 +7,7 @@ import (
 	"github/OfrenDialsa/go-gin-starter/internal/mailer"
 	"github/OfrenDialsa/go-gin-starter/middleware"
 	"github/OfrenDialsa/go-gin-starter/router"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/nsqio/go-nsq"
@@ -37,6 +38,10 @@ func Init(env *config.EnvironmentVariable, wrapDB *database.WrapDB) (*Setup, err
 	handlers := NewHandlers(env, service, repository)
 
 	mw := middleware.NewMiddleware(env, wrapDB, repository.User, repository.Session)
+
+	if mwImpl, ok := mw.(*middleware.MiddlewareImpl); ok {
+		mwImpl.CleanRateLimit(10*time.Minute, 30*time.Minute)
+	}
 
 	r := router.Handler{
 		Env:         env,

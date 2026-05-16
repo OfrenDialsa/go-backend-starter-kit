@@ -127,24 +127,36 @@ func (s *authServiceImpl) Register(ctx context.Context, userAgent, ipAddress str
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	verifLink := fmt.Sprintf("%s?token=%s", s.env.External.VerifyEmailURL, hashedToken)
-	emailBody, err := lib.BuildEmailBodyRegister(user.Name, verifLink)
-	if err != nil {
-		return nil, err
-	}
+	userName := user.Name
+	userEmail := user.Email
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error().Interface("panic", r).Msg("recovered from panic in verify user email goroutine")
+			}
+		}()
 
-	mailData := dto.MailerRequest{
-		To:          []string{user.Email},
-		Subject:     lib.DefaultEmailSubjectRegister,
-		Body:        emailBody,
-		Attachments: []string{},
-	}
+		verifLink := fmt.Sprintf("%s?token=%s", s.env.External.VerifyEmailURL, verifToken)
+		emailBody, err := lib.BuildEmailBodyRegister(userName, verifLink)
+		if err != nil {
+			log.Error().Err(err).Msg("[x] failed to build email body in background")
+			return
+		}
 
-	_, err = s.mailer.Send(mailData)
-	if err != nil {
-		log.Error().Err(err).Msg("error in sending email")
-		return
-	}
+		mailData := dto.MailerRequest{
+			To:          []string{userEmail},
+			Subject:     lib.DefaultEmailSubjectRegister,
+			Body:        emailBody,
+			Attachments: []string{},
+		}
+
+		_, err = s.mailer.Send(mailData)
+		if err != nil {
+			log.Error().Err(err).Msg("[x] failed to send verification email in background")
+			return
+		}
+		log.Info().Str("email", userEmail).Msg("[v] forgot password email sent successfully")
+	}()
 
 	return &dto.RegisterResponse{
 		User: dto.UserData{
@@ -157,149 +169,6 @@ func (s *authServiceImpl) Register(ctx context.Context, userAgent, ipAddress str
 			EmailVerifiedAt: user.EmailVerifiedAt,
 		},
 	}, nil
-}
-
-func (s *authServiceImpl) ResendVerificationEmail(ctx context.Context, userAgent, ipAddress string, req *dto.ResendVerificationRequest) (err error) {
-	start := time.Now()
-	defer func() {
-		status := "success"
-		if err != nil {
-			status = "failed"
-		}
-		metrics.TrackAuth("resend_verification", status, time.Since(start))
-	}()
-
-	user, err := s.userRepo.GetByEmail(ctx, req.Email)
-	if err != nil {
-		return fmt.Errorf("failed to get user: %w", err)
-	}
-	if user == nil {
-		return lib.ErrUserNotFound
-	}
-
-	if user.EmailVerifiedAt != nil {
-		return lib.ErrEmailAlreadyVerified
-	}
-
-	verifToken, err := utils.GenerateToken()
-	if err != nil {
-		return fmt.Errorf("failed to generate token: %w", err)
-	}
-	hashedToken := utils.HashTokenSHA256(verifToken)
-	expiresAt := time.Now().Add(time.Hour)
-
-	session := &model.UserSession{
-		SessionId: utils.GenerateULID(),
-		UserId:    user.UserId,
-		TokenHash: hashedToken,
-		ExpiresAt: expiresAt,
-		IPAddress: ipAddress,
-		UserAgent: userAgent,
-		Type:      "verify_email",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}
-
-	tx, err := s.txStarter.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-
-	defer tx.Rollback(ctx)
-
-	err = s.sessionRepo.DeleteByType(ctx, tx, user.UserId, "verify_email")
-	if err != nil {
-		return fmt.Errorf("failed to cleanup old verification tokens: %w", err)
-	}
-
-	err = s.sessionRepo.Create(ctx, tx, session)
-	if err != nil {
-		return fmt.Errorf("failed to create verification session: %w", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	verifLink := fmt.Sprintf("%s?token=%s", s.env.External.VerifyEmailURL, hashedToken)
-	emailBody, err := lib.BuildEmailBodyResendVerification(user.Name, verifLink)
-	if err != nil {
-		return err
-	}
-
-	mailData := dto.MailerRequest{
-		To:          []string{user.Email},
-		Subject:     lib.DefaultEmailSubjectResend,
-		Body:        emailBody,
-		Attachments: []string{},
-	}
-
-	_, err = s.mailer.Send(mailData)
-	if err != nil {
-		log.Error().Err(err).Msg("error in sending email")
-		return
-	}
-
-	return nil
-}
-
-func (s *authServiceImpl) VerifyEmail(ctx context.Context, token string) error {
-	hashedToken := utils.HashTokenSHA256(token)
-
-	session, err := s.sessionRepo.GetByToken(ctx, hashedToken, "verify_email")
-	if err != nil {
-		return fmt.Errorf("failed to retrieve session: %w", err)
-	}
-
-	if session == nil || session.RevokedAt != nil || session.ExpiresAt.Before(time.Now()) {
-		return lib.ErrInvalidToken
-	}
-
-	user, err := s.userRepo.GetByUserId(ctx, session.UserId)
-	if err != nil {
-		return fmt.Errorf("failed to retrieve user: %w", err)
-	}
-
-	//start transaction
-	tx, err := s.txStarter.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback(ctx)
-
-	err = s.userRepo.MarkVerifiedEmail(ctx, tx, session.UserId)
-	if err != nil {
-		return fmt.Errorf("failed to update verified email: %w", err)
-	}
-
-	err = s.sessionRepo.DeleteSession(ctx, tx, session.SessionId)
-	if err != nil {
-		return fmt.Errorf("failed to cleanup session: %w", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	emailBody, err := lib.BuildEmailBodyVerifyEmailSuccess(user.Name, s.env.External.FrontendURL+"/login")
-	if err != nil {
-		return err
-	}
-
-	mailData := dto.MailerRequest{
-		To:          []string{user.Email},
-		Subject:     lib.DefaultEmailSubjectVerifyEmailSuccess,
-		Body:        emailBody,
-		Attachments: []string{},
-	}
-
-	_, err = s.mailer.Send(mailData)
-	if err != nil {
-		log.Error().Err(err).Msg("error in sending email")
-		return err
-	}
-
-	return nil
 }
 
 func (s *authServiceImpl) Login(ctx context.Context, req dto.LoginRequest) (res *dto.LoginResponse, err error) {
@@ -437,21 +306,38 @@ func (s *authServiceImpl) ForgotPassword(ctx context.Context, email, userAgent, 
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	resetLink := fmt.Sprintf("%s?token=%s", s.env.External.ResetPasswordURL, hashedToken)
-	emailBody, err := lib.BuildEmailBodyResetPassword(user.Name, resetLink)
+	userEmail := user.Email
+	userName := user.Name
 
-	mailData := dto.MailerRequest{
-		To:          []string{user.Email},
-		Subject:     lib.DefaultEmailSubjectResetPassword,
-		Body:        emailBody,
-		Attachments: []string{},
-	}
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error().Interface("panic", r).Msg("recovered from panic in forgot password email goroutine")
+			}
+		}()
 
-	_, err = s.mailer.Send(mailData)
-	if err != nil {
-		log.Error().Err(err).Msg("error in sending email")
-		return err
-	}
+		resetLink := fmt.Sprintf("%s?token=%s", s.env.External.ResetPasswordURL, resetToken)
+		emailBody, err := lib.BuildEmailBodyResetPassword(userName, resetLink)
+		if err != nil {
+			log.Error().Err(err).Msg("[x] failed to build email body in background")
+			return
+		}
+
+		mailData := dto.MailerRequest{
+			To:          []string{userEmail},
+			Subject:     lib.DefaultEmailSubjectResetPassword,
+			Body:        emailBody,
+			Attachments: []string{},
+		}
+
+		_, err = s.mailer.Send(mailData)
+		if err != nil {
+			log.Error().Err(err).Str("email", userEmail).Msg("[x] error in sending forgot password email via goroutine")
+			return
+		}
+
+		log.Info().Str("email", userEmail).Msg("[v] forgot password email sent successfully")
+	}()
 
 	return nil
 }
@@ -584,24 +470,210 @@ func (s *authServiceImpl) ResetPassword(ctx context.Context, token string, newPa
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	emailBody, err := lib.BuildEmailBodyPasswordResetSuccess(user.Name)
+	userName := user.Name
+	userEmail := user.Email
 
-	mailData := dto.MailerRequest{
-		To:          []string{user.Email},
-		Subject:     lib.DefaultEmailSubjectPasswordResetSuccess,
-		Body:        emailBody,
-		Attachments: []string{},
-	}
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error().Interface("panic", r).Msg("recovered from panic in resend verification email goroutine")
+			}
+		}()
 
-	_, err = s.mailer.Send(mailData)
-	if err != nil {
-		log.Error().Err(err).Msg("error in sending email")
-		return err
-	}
+		emailBody, err := lib.BuildEmailBodyPasswordResetSuccess(userName)
+		if err != nil {
+			log.Error().Err(err).Msg("[x] failed to build email body in background")
+			return
+		}
+
+		mailData := dto.MailerRequest{
+			To:          []string{userEmail},
+			Subject:     lib.DefaultEmailSubjectPasswordResetSuccess,
+			Body:        emailBody,
+			Attachments: []string{},
+		}
+
+		_, err = s.mailer.Send(mailData)
+		if err != nil {
+			log.Error().Err(err).Msg("[x] failed to resend verification email in background")
+			return
+		}
+
+	}()
 
 	log.Info().
 		Str("user_id", session.UserId).
 		Msg("password reset successfully and sessions cleaned up")
+
+	return nil
+}
+
+func (s *authServiceImpl) ResendVerificationEmail(ctx context.Context, userAgent, ipAddress string, req *dto.ResendVerificationRequest) (err error) {
+	start := time.Now()
+	defer func() {
+		status := "success"
+		if err != nil {
+			status = "failed"
+		}
+		metrics.TrackAuth("resend_verification", status, time.Since(start))
+	}()
+
+	user, err := s.userRepo.GetByEmail(ctx, req.Email)
+	if err != nil {
+		return fmt.Errorf("failed to get user: %w", err)
+	}
+	if user == nil {
+		return lib.ErrUserNotFound
+	}
+
+	if user.EmailVerifiedAt != nil {
+		return lib.ErrEmailAlreadyVerified
+	}
+
+	verifToken, err := utils.GenerateToken()
+	if err != nil {
+		return fmt.Errorf("failed to generate token: %w", err)
+	}
+	hashedToken := utils.HashTokenSHA256(verifToken)
+	expiresAt := time.Now().Add(time.Hour)
+
+	session := &model.UserSession{
+		SessionId: utils.GenerateULID(),
+		UserId:    user.UserId,
+		TokenHash: hashedToken,
+		ExpiresAt: expiresAt,
+		IPAddress: ipAddress,
+		UserAgent: userAgent,
+		Type:      "verify_email",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	tx, err := s.txStarter.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+
+	defer tx.Rollback(ctx)
+
+	err = s.sessionRepo.DeleteByType(ctx, tx, user.UserId, "verify_email")
+	if err != nil {
+		return fmt.Errorf("failed to cleanup old verification tokens: %w", err)
+	}
+
+	err = s.sessionRepo.Create(ctx, tx, session)
+	if err != nil {
+		return fmt.Errorf("failed to create verification session: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	userName := user.Name
+	userEmail := user.Email
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error().Interface("panic", r).Msg("recovered from panic in resend verification email goroutine")
+			}
+		}()
+
+		verifLink := fmt.Sprintf("%s?token=%s", s.env.External.VerifyEmailURL, verifToken)
+		emailBody, err := lib.BuildEmailBodyResendVerification(userName, verifLink)
+		if err != nil {
+			log.Error().Err(err).Msg("[x] failed to build email body in background")
+			return
+		}
+
+		mailData := dto.MailerRequest{
+			To:          []string{userEmail},
+			Subject:     lib.DefaultEmailSubjectResend,
+			Body:        emailBody,
+			Attachments: []string{},
+		}
+
+		_, err = s.mailer.Send(mailData)
+		if err != nil {
+			log.Error().Err(err).Msg("[x] failed to resend verification email in background")
+			return
+		}
+
+		log.Info().Str("email", userEmail).Msg("[v] resend verification email sent successfully")
+	}()
+
+	return nil
+}
+
+func (s *authServiceImpl) VerifyEmail(ctx context.Context, token string) error {
+	hashedToken := utils.HashTokenSHA256(token)
+
+	session, err := s.sessionRepo.GetByToken(ctx, hashedToken, "verify_email")
+	if err != nil {
+		return fmt.Errorf("failed to retrieve session: %w", err)
+	}
+
+	if session == nil || session.RevokedAt != nil || session.ExpiresAt.Before(time.Now()) {
+		return lib.ErrInvalidToken
+	}
+
+	user, err := s.userRepo.GetByUserId(ctx, session.UserId)
+	if err != nil {
+		return fmt.Errorf("failed to retrieve user: %w", err)
+	}
+
+	//start transaction
+	tx, err := s.txStarter.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	err = s.userRepo.MarkVerifiedEmail(ctx, tx, session.UserId)
+	if err != nil {
+		return fmt.Errorf("failed to update verified email: %w", err)
+	}
+
+	err = s.sessionRepo.DeleteSession(ctx, tx, session.SessionId)
+	if err != nil {
+		return fmt.Errorf("failed to cleanup session: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	userName := user.Name
+	userEmail := user.Email
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error().Interface("panic", r).Msg("recovered from panic in verify email success email goroutine")
+			}
+		}()
+
+		emailBody, err := lib.BuildEmailBodyVerifyEmailSuccess(userName, s.env.External.FrontendURL+"/login")
+		if err != nil {
+			log.Error().Err(err).Msg("[x] failed to build email body in background")
+			return
+		}
+
+		mailData := dto.MailerRequest{
+			To:          []string{userEmail},
+			Subject:     lib.DefaultEmailSubjectVerifyEmailSuccess,
+			Body:        emailBody,
+			Attachments: []string{},
+		}
+
+		_, err = s.mailer.Send(mailData)
+		if err != nil {
+			log.Error().Err(err).Msg("[x] failed to send verify email success background")
+			return
+		}
+		log.Info().Str("email", userEmail).Msg("[v] forgot password email sent successfully")
+	}()
 
 	return nil
 }
