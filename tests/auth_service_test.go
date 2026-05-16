@@ -24,7 +24,7 @@ type authServiceTestDeps struct {
 	userRepo    *mocks.UserRepository
 	sessionRepo *mocks.SessionRepository
 	txStarter   *mocks.TxStarter
-	mailer 		*mocks.Mailer
+	mailer      *mocks.Mailer
 	mockTx      *mocks.Tx
 	svc         service.AuthService
 }
@@ -60,6 +60,7 @@ func setupAuthService(t *testing.T) *authServiceTestDeps {
 		sessionRepo: mocks.NewSessionRepository(t),
 		txStarter:   mocks.NewTxStarter(t),
 		mockTx:      mocks.NewTx(t),
+		mailer:      mocks.NewMailer(t),
 	}
 
 	d.svc = service.NewAuthService(
@@ -92,12 +93,14 @@ func TestRegister(t *testing.T) {
 			},
 			setupMock: func(d *authServiceTestDeps) {
 				d.userRepo.On("GetByEmailOrUsername", ctx, "test@example.com", "testuser").Return(nil, nil)
+
 				d.txStarter.On("Begin", ctx).Return(d.mockTx, nil)
-
 				d.userRepo.On("Create", ctx, d.mockTx, mock.AnythingOfType("*model.User")).Return(nil)
-
+				d.sessionRepo.On("Create", ctx, d.mockTx, mock.AnythingOfType("*model.UserSession")).Return(nil)
 				d.mockTx.On("Commit", ctx).Return(nil)
 				d.mockTx.On("Rollback", ctx).Return(nil).Maybe()
+
+				d.mailer.On("Send", mock.AnythingOfType("dto.MailerRequest")).Return("success", nil)
 			},
 			wantErr: false,
 		},
@@ -139,11 +142,14 @@ func TestRegister(t *testing.T) {
 				assert.NoError(t, err)
 				assert.NotNil(t, resp)
 				assert.Equal(t, tt.req.Email, resp.User.Email)
+				assert.Equal(t, tt.req.Username, resp.User.Username)
 			}
 
 			d.userRepo.AssertExpectations(t)
 			d.sessionRepo.AssertExpectations(t)
 			d.mockTx.AssertExpectations(t)
+			d.mailer.AssertExpectations(t)
+			d.txStarter.AssertExpectations(t)
 		})
 	}
 }
@@ -180,6 +186,8 @@ func TestVerifyEmail(t *testing.T) {
 				d.sessionRepo.On("DeleteSession", ctx, d.mockTx, session.SessionId).Return(nil)
 				d.mockTx.On("Commit", ctx).Return(nil)
 				d.mockTx.On("Rollback", ctx).Return(nil).Maybe()
+
+				d.mailer.On("Send", mock.AnythingOfType("dto.MailerRequest")).Return("success", nil)
 			},
 			wantErr: false,
 		},
@@ -241,6 +249,8 @@ func TestVerifyEmail(t *testing.T) {
 			d.userRepo.AssertExpectations(t)
 			d.sessionRepo.AssertExpectations(t)
 			d.mockTx.AssertExpectations(t)
+			d.mailer.AssertExpectations(t)
+			d.txStarter.AssertExpectations(t)
 		})
 	}
 }
@@ -266,18 +276,18 @@ func TestResendVerificationEmail(t *testing.T) {
 					UserId:          "user-ulid",
 					Email:           email,
 					Name:            "Ofren Dialsa",
-					EmailVerifiedAt: nil, // Belum verifikasi
+					EmailVerifiedAt: nil,
 				}
 
 				d.userRepo.On("GetByEmail", ctx, email).Return(user, nil)
+
 				d.txStarter.On("Begin", ctx).Return(d.mockTx, nil)
-
 				d.sessionRepo.On("DeleteByType", ctx, d.mockTx, user.UserId, "verify_email").Return(nil)
-
 				d.sessionRepo.On("Create", ctx, d.mockTx, mock.AnythingOfType("*model.UserSession")).Return(nil)
-
 				d.mockTx.On("Commit", ctx).Return(nil)
 				d.mockTx.On("Rollback", ctx).Return(nil).Maybe()
+
+				d.mailer.On("Send", mock.AnythingOfType("dto.MailerRequest")).Return("success", nil)
 
 			},
 			wantErr: false,
@@ -336,6 +346,7 @@ func TestResendVerificationEmail(t *testing.T) {
 
 			d.userRepo.AssertExpectations(t)
 			d.sessionRepo.AssertExpectations(t)
+			d.mailer.AssertExpectations(t)
 		})
 	}
 }
@@ -502,6 +513,8 @@ func TestForgotPassword(t *testing.T) {
 
 				d.mockTx.On("Commit", ctx).Return(nil)
 				d.mockTx.On("Rollback", ctx).Return(nil).Maybe()
+
+				d.mailer.On("Send", mock.AnythingOfType("dto.MailerRequest")).Return("success", nil)
 			},
 			wantErr: false,
 		},
@@ -544,19 +557,6 @@ func TestForgotPassword(t *testing.T) {
 			},
 			wantErr: true,
 		},
-		{
-			name:  "Success_ProducerFailed_ShouldMarkJobAsFailed",
-			email: email,
-			setupMock: func(d *authServiceTestDeps) {
-				user := &model.User{UserId: "u1", Email: email}
-				d.userRepo.On("GetByEmail", ctx, email).Return(user, nil)
-				d.txStarter.On("Begin", ctx).Return(d.mockTx, nil)
-				d.sessionRepo.On("Create", ctx, d.mockTx, mock.Anything).Return(nil)
-				d.mockTx.On("Commit", ctx).Return(nil)
-				d.mockTx.On("Rollback", ctx).Return(nil).Maybe()
-			},
-			wantErr: false,
-		},
 	}
 
 	for _, tt := range tests {
@@ -575,6 +575,7 @@ func TestForgotPassword(t *testing.T) {
 			d.userRepo.AssertExpectations(t)
 			d.sessionRepo.AssertExpectations(t)
 			d.mockTx.AssertExpectations(t)
+			d.mailer.AssertExpectations(t)
 		})
 	}
 }
@@ -685,6 +686,7 @@ func TestRefreshToken(t *testing.T) {
 		})
 	}
 }
+
 func TestResetPassword(t *testing.T) {
 	ctx := context.Background()
 	validToken := "valid-reset-token-123"
@@ -722,6 +724,8 @@ func TestResetPassword(t *testing.T) {
 
 				d.mockTx.On("Commit", ctx).Return(nil)
 				d.mockTx.On("Rollback", ctx).Return(nil).Maybe()
+
+				d.mailer.On("Send", mock.AnythingOfType("dto.MailerRequest")).Return("success", nil)
 			},
 			wantErr: false,
 		},
@@ -768,27 +772,6 @@ func TestResetPassword(t *testing.T) {
 			},
 			wantErr: true,
 		},
-		{
-			name:     "Error_ProducerFailed_ShouldMarkJobAsFailed",
-			token:    validToken,
-			password: newPassword,
-			setupMock: func(d *authServiceTestDeps) {
-				session := &model.UserSession{SessionId: "s-reset", UserId: userId, ExpiresAt: time.Now().Add(1 * time.Hour)}
-				user := &model.User{UserId: userId, Email: "ofren@mail.com"}
-
-				d.sessionRepo.On("GetByToken", ctx, hashedToken, "reset_password").Return(session, nil)
-				d.userRepo.On("GetByUserId", ctx, userId).Return(user, nil)
-
-				d.txStarter.On("Begin", ctx).Return(d.mockTx, nil)
-				d.userRepo.On("UpdatePassword", ctx, d.mockTx, userId, mock.Anything).Return(nil)
-				d.sessionRepo.On("RevokeAllUserSessions", ctx, d.mockTx, userId).Return(nil)
-				d.sessionRepo.On("DeleteSession", ctx, d.mockTx, "s-reset").Return(nil)
-				d.mockTx.On("Commit", ctx).Return(nil)
-				d.mockTx.On("Rollback", ctx).Return(nil).Maybe()
-			},
-
-			wantErr: false,
-		},
 	}
 
 	for _, tt := range tests {
@@ -810,6 +793,7 @@ func TestResetPassword(t *testing.T) {
 			d.userRepo.AssertExpectations(t)
 			d.sessionRepo.AssertExpectations(t)
 			d.mockTx.AssertExpectations(t)
+			d.mailer.AssertExpectations(t)
 		})
 	}
 }

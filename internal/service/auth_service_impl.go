@@ -187,6 +187,39 @@ func (s *authServiceImpl) ResendVerificationEmail(ctx context.Context, userAgent
 	hashedToken := utils.HashTokenSHA256(verifToken)
 	expiresAt := time.Now().Add(time.Hour)
 
+	session := &model.UserSession{
+		SessionId: utils.GenerateULID(),
+		UserId:    user.UserId,
+		TokenHash: hashedToken,
+		ExpiresAt: expiresAt,
+		IPAddress: ipAddress,
+		UserAgent: userAgent,
+		Type:      "verify_email",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	tx, err := s.txStarter.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+
+	defer tx.Rollback(ctx)
+
+	err = s.sessionRepo.DeleteByType(ctx, tx, user.UserId, "verify_email")
+	if err != nil {
+		return fmt.Errorf("failed to cleanup old verification tokens: %w", err)
+	}
+
+	err = s.sessionRepo.Create(ctx, tx, session)
+	if err != nil {
+		return fmt.Errorf("failed to create verification session: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
 	verifLink := fmt.Sprintf("%s?token=%s", s.env.External.VerifyEmailURL, hashedToken)
 	emailBody, err := lib.BuildEmailBodyResendVerification(user.Name, verifLink)
 	if err != nil {
@@ -204,38 +237,6 @@ func (s *authServiceImpl) ResendVerificationEmail(ctx context.Context, userAgent
 	if err != nil {
 		log.Error().Err(err).Msg("error in sending email")
 		return
-	}
-
-	session := &model.UserSession{
-		SessionId: utils.GenerateULID(),
-		UserId:    user.UserId,
-		TokenHash: hashedToken,
-		ExpiresAt: expiresAt,
-		IPAddress: ipAddress,
-		UserAgent: userAgent,
-		Type:      "verify_email",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}
-
-	tx, err := s.txStarter.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback(ctx)
-
-	err = s.sessionRepo.DeleteByType(ctx, tx, user.UserId, "verify_email")
-	if err != nil {
-		return fmt.Errorf("failed to cleanup old verification tokens: %w", err)
-	}
-
-	err = s.sessionRepo.Create(ctx, tx, session)
-	if err != nil {
-		return fmt.Errorf("failed to create verification session: %w", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	return nil

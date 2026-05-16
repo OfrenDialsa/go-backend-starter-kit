@@ -94,21 +94,30 @@ db-shell:
 clean:
 	go clean
 
+MOCK_FILTER = 2>&1 | grep -E "Generating mock|Unable to find|could not find|error" | awk '\
+    /Generating mock/ { \
+        split($$0, a, "interface="); \
+        split(a[2], b, " "); \
+        print "  -> Mocking interface:", b[1] \
+    } \
+    /Unable to find|could not find|error/ { \
+        print "  \033[0;31m[!] Error:\033[0m Interface not found" \
+    }'
+	
 mocks:
 	@echo "[>>] Generating repository mocks..."
 	@mkdir -p $(MOCK_DIR)
-	@$(MOCKERY) --all --dir $(REPO_DIR) --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string --quiet 2>/dev/null || true
+	@$(MOCKERY) --all --dir $(REPO_DIR) --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string $(MOCK_FILTER)
 
 	@echo "[>>] Generating specific mocks..."
-	@$(MOCKERY) --name TxStarter --dir $(SERVICE_DIR) --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string --quiet 2>/dev/null || true
-	@$(MOCKERY) --name StorageService --dir $(STORAGE_DIR) --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string --quiet 2>/dev/null || true
-	@$(MOCKERY) --name ProducerService --dir $(SERVICE_DIR) --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string --quiet 2>/dev/null || true
+	@$(MOCKERY) --name TxStarter --dir $(SERVICE_DIR) --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string $(MOCK_FILTER)
+	@$(MOCKERY) --name StorageService --dir $(STORAGE_DIR) --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string $(MOCK_FILTER)
 	
 	@echo "[>>] Generating external mocks..."
-	@$(MOCKERY) --name Tx --srcpkg github.com/jackc/pgx/v5 --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string --quiet 2>/dev/null || true
+	@$(MOCKERY) --name Tx --srcpkg github.com/jackc/pgx/v5 --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string $(MOCK_FILTER)
 	
 	@echo "[>>] Generating mailer mock..."
-	@$(MOCKERY) --name Sender --dir internal/mailer --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --structname Mailer --case snake --disable-version-string --quiet 2>/dev/null || true
+	@$(MOCKERY) --name Sender --dir internal/mailer --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --structname Mailer --case snake --disable-version-string $(MOCK_FILTER)
 	
 	@echo "[v] Done generating mocks"
 
