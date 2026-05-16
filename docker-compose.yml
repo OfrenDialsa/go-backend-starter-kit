@@ -60,4 +60,3 @@ services:
 
 volumes:
   pgdata:
-  redisdata:
