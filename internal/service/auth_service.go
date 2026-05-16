@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"github/OfrenDialsa/go-gin-starter/internal/dto"
+	"sync"
 )
 
 type AuthService interface {
@@ -16,4 +17,5 @@ type AuthService interface {
 	ResetPassword(ctx context.Context, token string, newPassword string) error
 	CheckEmail(ctx context.Context, email string) (bool, error)
 	CheckUsername(ctx context.Context, username string) (bool, error)
+	SetWaitGroup(wg *sync.WaitGroup)
 }

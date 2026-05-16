@@ -1,5 +1,7 @@
 package dto
 
+import "time"
+
 type RegisterRequest struct {
 	Email    string `json:"email" binding:"required,email"`
 	Username string `json:"username" binding:"required,username,min=3,max=20"`
@@ -43,12 +45,13 @@ type RefreshTokenResponse struct {
 }
 
 type UserData struct {
-	UserId    string  `json:"user_id"`
-	Email     string  `json:"email"`
-	Username  string  `json:"username"`
-	Name      string  `json:"name"`
-	Status    string  `json:"status"`
-	AvatarURL *string `json:"avatar_url"`
+	UserId          string     `json:"user_id"`
+	Email           string     `json:"email"`
+	Username        string     `json:"username"`
+	Name            string     `json:"name"`
+	Status          string     `json:"status"`
+	EmailVerifiedAt *time.Time `json:"email_verified_at"`
+	AvatarURL       *string    `json:"avatar_url"`
 }
 
 type ResetPasswordRequest struct {

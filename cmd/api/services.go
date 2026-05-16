@@ -6,13 +6,12 @@ import (
 	"github/OfrenDialsa/go-gin-starter/external"
 	"github/OfrenDialsa/go-gin-starter/internal/mailer"
 	"github/OfrenDialsa/go-gin-starter/internal/service"
+	"sync"
 )
 
 type Services struct {
-	Producer service.ProducerService
-	Consumer service.ConsumerService
-	Auth     service.AuthService
-	User     service.UserService
+	Auth service.AuthService
+	User service.UserService
 }
 
 func NewServices(
@@ -21,11 +20,10 @@ func NewServices(
 	r Repositories,
 	ext *external.ExternalService,
 	mailer mailer.SmtpMailer,
-	producerSvc service.ProducerService,
+	wg *sync.WaitGroup,
 ) Services {
 	return Services{
-		Consumer: service.NewConsumerService(env, r.LogJob, mailer),
-		Auth:     service.NewAuthService(env, db.Database.Conn, r.User, r.Session, r.LogJob, producerSvc),
-		User:     service.NewUserService(env, db.Database.Conn, r.User, r.Session, r.Auditlog, ext.Storage),
+		Auth: service.NewAuthService(env, db.Database.Conn, mailer, r.User, r.Session, wg),
+		User: service.NewUserService(env, db.Database.Conn, r.User, r.Session, r.Auditlog, ext.Storage),
 	}
 }
