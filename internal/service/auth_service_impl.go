@@ -12,6 +12,7 @@ import (
 	"github/OfrenDialsa/go-gin-starter/lib"
 	"github/OfrenDialsa/go-gin-starter/utils"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -23,6 +24,8 @@ type authServiceImpl struct {
 	txStarter   TxStarter
 	userRepo    repository.UserRepository
 	sessionRepo repository.SessionRepository
+
+	wg *sync.WaitGroup
 }
 
 func NewAuthService(
@@ -31,6 +34,7 @@ func NewAuthService(
 	mailer mailer.SmtpMailer,
 	userRepo repository.UserRepository,
 	sessionRepo repository.SessionRepository,
+	wg *sync.WaitGroup,
 ) AuthService {
 	return &authServiceImpl{
 		env:         env,
@@ -38,6 +42,7 @@ func NewAuthService(
 		mailer:      mailer,
 		userRepo:    userRepo,
 		sessionRepo: sessionRepo,
+		wg:          wg,
 	}
 }
 
@@ -129,8 +134,17 @@ func (s *authServiceImpl) Register(ctx context.Context, userAgent, ipAddress str
 
 	userName := user.Name
 	userEmail := user.Email
+
+	if s.wg != nil {
+		s.wg.Add(1)
+	}
+
 	go func() {
 		defer func() {
+			if s.wg != nil {
+				s.wg.Done() // set goroutines has done
+			}
+
 			if r := recover(); r != nil {
 				log.Error().Interface("panic", r).Msg("recovered from panic in verify user email goroutine")
 			}
@@ -155,7 +169,7 @@ func (s *authServiceImpl) Register(ctx context.Context, userAgent, ipAddress str
 			log.Error().Err(err).Msg("[x] failed to send verification email in background")
 			return
 		}
-		log.Info().Str("email", userEmail).Msg("[v] forgot password email sent successfully")
+		log.Info().Str("email", userEmail).Msg("[v] verification email sent successfully")
 	}()
 
 	return &dto.RegisterResponse{
@@ -309,10 +323,18 @@ func (s *authServiceImpl) ForgotPassword(ctx context.Context, email, userAgent, 
 	userEmail := user.Email
 	userName := user.Name
 
+	if s.wg != nil {
+		s.wg.Add(1)
+	}
+
 	go func() {
 		defer func() {
+			if s.wg != nil {
+				s.wg.Done() // set goroutines has done
+			}
+
 			if r := recover(); r != nil {
-				log.Error().Interface("panic", r).Msg("recovered from panic in forgot password email goroutine")
+				log.Error().Interface("panic", r).Msg("recovered from panic in fogot password email goroutine")
 			}
 		}()
 
@@ -473,10 +495,18 @@ func (s *authServiceImpl) ResetPassword(ctx context.Context, token string, newPa
 	userName := user.Name
 	userEmail := user.Email
 
+	if s.wg != nil {
+		s.wg.Add(1)
+	}
+
 	go func() {
 		defer func() {
+			if s.wg != nil {
+				s.wg.Done() // set goroutines has done
+			}
+
 			if r := recover(); r != nil {
-				log.Error().Interface("panic", r).Msg("recovered from panic in resend verification email goroutine")
+				log.Error().Interface("panic", r).Msg("recovered from panic in reset password email goroutine")
 			}
 		}()
 
@@ -495,7 +525,7 @@ func (s *authServiceImpl) ResetPassword(ctx context.Context, token string, newPa
 
 		_, err = s.mailer.Send(mailData)
 		if err != nil {
-			log.Error().Err(err).Msg("[x] failed to resend verification email in background")
+			log.Error().Err(err).Msg("[x] failed to send reset password email in background")
 			return
 		}
 
@@ -573,8 +603,16 @@ func (s *authServiceImpl) ResendVerificationEmail(ctx context.Context, userAgent
 	userName := user.Name
 	userEmail := user.Email
 
+	if s.wg != nil {
+		s.wg.Add(1)
+	}
+
 	go func() {
 		defer func() {
+			if s.wg != nil {
+				s.wg.Done() // set goroutines has done
+			}
+
 			if r := recover(); r != nil {
 				log.Error().Interface("panic", r).Msg("recovered from panic in resend verification email goroutine")
 			}
@@ -647,10 +685,18 @@ func (s *authServiceImpl) VerifyEmail(ctx context.Context, token string) error {
 	userName := user.Name
 	userEmail := user.Email
 
+	if s.wg != nil {
+		s.wg.Add(1)
+	}
+
 	go func() {
 		defer func() {
+			if s.wg != nil {
+				s.wg.Done() // set goroutines has done
+			}
+
 			if r := recover(); r != nil {
-				log.Error().Interface("panic", r).Msg("recovered from panic in verify email success email goroutine")
+				log.Error().Interface("panic", r).Msg("recovered from panic in verify email success goroutine")
 			}
 		}()
 
@@ -694,4 +740,8 @@ func (s *authServiceImpl) CheckUsername(ctx context.Context, username string) (b
 		return false, fmt.Errorf("failed to check username: %w", err)
 	}
 	return exists, nil
+}
+
+func (s *authServiceImpl) SetWaitGroup(wg *sync.WaitGroup) {
+	s.wg = wg
 }

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -69,7 +70,9 @@ func setupAuthService(t *testing.T) *authServiceTestDeps {
 		d.mailer,
 		d.userRepo,
 		d.sessionRepo,
+		nil,
 	)
+
 	return d
 }
 
@@ -131,7 +134,17 @@ func TestRegister(t *testing.T) {
 
 			tt.setupMock(d)
 
+			var wg sync.WaitGroup
+			type checkSetter interface {
+				SetWaitGroup(wg *sync.WaitGroup)
+			}
+			if setter, ok := d.svc.(checkSetter); ok {
+				setter.SetWaitGroup(&wg)
+			}
+
 			resp, err := d.svc.Register(ctx, "UA", "127.0.0.1", tt.req)
+
+			wg.Wait()
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -235,7 +248,17 @@ func TestVerifyEmail(t *testing.T) {
 			d := setupAuthService(t)
 			tt.setupMock(d)
 
+			var wg sync.WaitGroup
+			type checkSetter interface {
+				SetWaitGroup(wg *sync.WaitGroup)
+			}
+			if setter, ok := d.svc.(checkSetter); ok {
+				setter.SetWaitGroup(&wg)
+			}
+
 			err := d.svc.VerifyEmail(ctx, tt.token)
+
+			wg.Wait()
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -333,7 +356,17 @@ func TestResendVerificationEmail(t *testing.T) {
 			d := setupAuthService(t)
 			tt.setupMock(d)
 
+			var wg sync.WaitGroup
+			type checkSetter interface {
+				SetWaitGroup(wg *sync.WaitGroup)
+			}
+			if setter, ok := d.svc.(checkSetter); ok {
+				setter.SetWaitGroup(&wg)
+			}
+
 			err := d.svc.ResendVerificationEmail(ctx, userAgent, ipAddress, tt.req)
+
+			wg.Wait()
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -564,7 +597,17 @@ func TestForgotPassword(t *testing.T) {
 			d := setupAuthService(t)
 			tt.setupMock(d)
 
+			var wg sync.WaitGroup
+			type checkSetter interface {
+				SetWaitGroup(wg *sync.WaitGroup)
+			}
+			if setter, ok := d.svc.(checkSetter); ok {
+				setter.SetWaitGroup(&wg)
+			}
+
 			err := d.svc.ForgotPassword(ctx, tt.email, ua, ip)
+
+			wg.Wait()
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -779,7 +822,17 @@ func TestResetPassword(t *testing.T) {
 			d := setupAuthService(t)
 			tt.setupMock(d)
 
+			var wg sync.WaitGroup
+			type checkSetter interface {
+				SetWaitGroup(wg *sync.WaitGroup)
+			}
+			if setter, ok := d.svc.(checkSetter); ok {
+				setter.SetWaitGroup(&wg)
+			}
+
 			err := d.svc.ResetPassword(ctx, tt.token, tt.password)
+
+			wg.Wait()
 
 			if tt.wantErr {
 				assert.Error(t, err)

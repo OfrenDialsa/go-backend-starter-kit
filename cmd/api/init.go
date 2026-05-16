@@ -33,7 +33,7 @@ func Init(env *config.EnvironmentVariable, wrapDB *database.WrapDB) (*Setup, err
 		return nil, err
 	}
 
-	service := NewServices(env, wrapDB, repository, extService, sender)
+	service := NewServices(env, wrapDB, repository, extService, sender, nil)
 
 	handlers := NewHandlers(env, service, repository)
 
