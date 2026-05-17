@@ -50,7 +50,7 @@ func NewRouter(env *config.EnvironmentVariable, h Handler) *gin.Engine {
 
 		router.Static("/public", "./storage")
 
-		PrometheusRouter(env, router)
+		setupPrometheus(env, router)
 
 		if env.App.Mode == "dev" {
 			setupSwagger(base, env)

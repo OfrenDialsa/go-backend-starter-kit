@@ -7,7 +7,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-func PrometheusRouter(env *config.EnvironmentVariable, router *gin.Engine) {
+func setupPrometheus(env *config.EnvironmentVariable, router *gin.Engine) {
 	metricsH := gin.WrapH(promhttp.Handler())
 
 	if env.App.Mode == "prod" {
