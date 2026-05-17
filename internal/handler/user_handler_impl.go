@@ -84,7 +84,7 @@ func (u *UserHandlerImpl) UpdateProfile(ctx *gin.Context) {
 	}
 
 	var req dto.UpdateProfileRequest
-	if err := ctx.ShouldBindJSON(&req); err != nil {
+	if err := ctx.ShouldBind(&req); err != nil {
 		lib.RespondValidationError(ctx, http.StatusBadRequest, "Bad payload", parseValidationErrors(err))
 		return
 	}

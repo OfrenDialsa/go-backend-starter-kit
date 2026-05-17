@@ -98,8 +98,12 @@ type EnvironmentVariable struct {
 		} `mapstructure:"SMTP"`
 	} `mapstructure:"MAIL"`
 	Storage struct {
-		Type string `mapstructure:"TYPE" validate:"required"`
-		S3   struct {
+		Type  string `mapstructure:"TYPE" validate:"required"`
+		Local struct {
+			BasePath  string `mapstructure:"BASE_PATH"`
+			PublicUrl string `mapstructure:"PUBLIC_URL"`
+		} `mapstructure:"LOCAL"`
+		S3 struct {
 			Endpoint     string `mapstructure:"ENDPOINT"`
 			Region       string `mapstructure:"REGION"`
 			Bucket       string `mapstructure:"BUCKET"`

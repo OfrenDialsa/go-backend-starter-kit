@@ -10,10 +10,11 @@ import (
 	"github/OfrenDialsa/go-gin-starter/internal/model"
 	"github/OfrenDialsa/go-gin-starter/internal/repository"
 	"github/OfrenDialsa/go-gin-starter/lib"
+	"github/OfrenDialsa/go-gin-starter/utils"
 	"io"
+	"path/filepath"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 )
 
@@ -128,7 +129,8 @@ func (u *userServiceImpl) UpdateProfile(ctx context.Context, req dto.UpdateProfi
 			return nil, fmt.Errorf("error copying file to buffer: %w", err)
 		}
 
-		fileName := fmt.Sprintf("avatars/%s_%s", uuid.NewString(), req.Avatar.Filename)
+		ext := filepath.Ext(req.Avatar.Filename)
+		fileName := fmt.Sprintf("avatars/%s%s", utils.GenerateULID(), ext)
 
 		if err := u.storage.UploadFile(ctx, fileName, buf); err != nil {
 			return nil, fmt.Errorf("failed to upload avatar: %w", err)
