@@ -11,7 +11,7 @@ API_CONTAINER=api
 MOCKERY := ~/go/bin/mockery
 REPO_DIR := internal/repository
 SERVICE_DIR := internal/service
-STORAGE_DIR := external/storage
+STORAGE_DIR := internal/infra/storage
 MOCK_DIR := tests/mocks
 MOCK_PKG := mocks
 

@@ -4,7 +4,6 @@ import (
 	"github/OfrenDialsa/go-gin-starter/config"
 	_ "github/OfrenDialsa/go-gin-starter/docs"
 	"github/OfrenDialsa/go-gin-starter/internal/handler"
-	"github/OfrenDialsa/go-gin-starter/internal/metrics"
 	"github/OfrenDialsa/go-gin-starter/middleware"
 	apiV1 "github/OfrenDialsa/go-gin-starter/router/api/v1"
 
@@ -23,7 +22,7 @@ type Handler struct {
 func NewRouter(env *config.EnvironmentVariable, h Handler) *gin.Engine {
 	router := gin.Default()
 	router.Use(cors.Default())
-	router.Use(metrics.PrometheusMiddleware())
+	router.Use(h.Middleware.Prometheus())
 
 	base := router.Group("/")
 	{
@@ -49,7 +48,9 @@ func NewRouter(env *config.EnvironmentVariable, h Handler) *gin.Engine {
 			apiV1.UserRoutes(v1, h.UserHandler, h.Middleware)
 		}
 
-		PrometheusRouter(env, router)
+		router.Static("/public", "./storage")
+
+		setupPrometheus(env, router)
 
 		if env.App.Mode == "dev" {
 			setupSwagger(base, env)

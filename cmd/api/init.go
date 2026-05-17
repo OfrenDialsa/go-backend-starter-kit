@@ -1,10 +1,11 @@
 package api
 
 import (
+	"context"
 	"github/OfrenDialsa/go-gin-starter/config"
 	"github/OfrenDialsa/go-gin-starter/database"
-	"github/OfrenDialsa/go-gin-starter/external"
-	"github/OfrenDialsa/go-gin-starter/internal/mailer"
+	"github/OfrenDialsa/go-gin-starter/internal/infra/mailer"
+	"github/OfrenDialsa/go-gin-starter/internal/infra/storage"
 	"github/OfrenDialsa/go-gin-starter/middleware"
 	"github/OfrenDialsa/go-gin-starter/router"
 	"time"
@@ -24,16 +25,15 @@ type Setup struct {
 }
 
 func Init(env *config.EnvironmentVariable, wrapDB *database.WrapDB) (*Setup, error) {
-	sender := mailer.NewSMTPMailer(env, env.Mail.From, env.Mail.FromName)
+	mailer := mailer.NewSMTPMailer(env, env.Mail.From, env.Mail.FromName)
 	repository := NewRepositories(env, wrapDB)
-
-	extService, err := external.NewExternalService(env)
+	storage, err := storage.New(context.Background(), env)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to initialize external service")
+		log.Error().Err(err).Msg("Failed to initialize storage service")
 		return nil, err
 	}
 
-	service := NewServices(env, wrapDB, repository, extService, sender, nil)
+	service := NewServices(env, wrapDB, repository, storage, mailer, nil)
 
 	handlers := NewHandlers(env, service, repository)
 
@@ -57,6 +57,6 @@ func Init(env *config.EnvironmentVariable, wrapDB *database.WrapDB) (*Setup, err
 		Repository: repository,
 		Service:    service,
 		WrapDB:     wrapDB,
-		Mailer:     sender,
+		Mailer:     mailer,
 	}, nil
 }

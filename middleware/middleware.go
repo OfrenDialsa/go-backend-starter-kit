@@ -12,4 +12,5 @@ type Middleware interface {
 	EmailVerified() gin.HandlerFunc
 	RateLimit(limit int, window time.Duration) gin.HandlerFunc
 	CleanRateLimit(interval time.Duration, maxAge time.Duration)
+	Prometheus() gin.HandlerFunc
 }
