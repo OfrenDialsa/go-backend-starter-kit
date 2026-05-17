@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"github/OfrenDialsa/go-gin-starter/config"
 	"github/OfrenDialsa/go-gin-starter/database"
+	"github/OfrenDialsa/go-gin-starter/internal/infra/metrics"
 	"github/OfrenDialsa/go-gin-starter/internal/repository"
 	"github/OfrenDialsa/go-gin-starter/lib"
 	"github/OfrenDialsa/go-gin-starter/utils"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -170,4 +172,25 @@ func (m *MiddlewareImpl) CleanRateLimit(interval time.Duration, maxAge time.Dura
 			})
 		}
 	}()
+}
+
+func (m *MiddlewareImpl) Prometheus() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		start := time.Now()
+
+		c.Next()
+
+		endpoint := c.FullPath()
+		if endpoint == "/metrics" || strings.HasPrefix(endpoint, "/swagger") {
+			c.Next()
+			return
+		}
+
+		status := strconv.Itoa(c.Writer.Status())
+		method := c.Request.Method
+
+		metrics.HTTPRequests.WithLabelValues(method, endpoint, status).Inc()
+		metrics.HTTPDuration.WithLabelValues(method, endpoint).
+			Observe(time.Since(start).Seconds())
+	}
 }
