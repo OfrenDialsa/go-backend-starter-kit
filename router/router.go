@@ -4,7 +4,7 @@ import (
 	"github/OfrenDialsa/go-gin-starter/config"
 	_ "github/OfrenDialsa/go-gin-starter/docs"
 	"github/OfrenDialsa/go-gin-starter/internal/handler"
-	"github/OfrenDialsa/go-gin-starter/internal/metrics"
+	"github/OfrenDialsa/go-gin-starter/internal/infra/metrics"
 	"github/OfrenDialsa/go-gin-starter/middleware"
 	apiV1 "github/OfrenDialsa/go-gin-starter/router/api/v1"
 
