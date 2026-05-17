@@ -49,6 +49,8 @@ func NewRouter(env *config.EnvironmentVariable, h Handler) *gin.Engine {
 			apiV1.UserRoutes(v1, h.UserHandler, h.Middleware)
 		}
 
+		router.Static("/public", "./storage")
+
 		PrometheusRouter(env, router)
 
 		if env.App.Mode == "dev" {

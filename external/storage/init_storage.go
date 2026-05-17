@@ -6,6 +6,7 @@ import (
 	"github/OfrenDialsa/go-gin-starter/config"
 
 	awss3 "github/OfrenDialsa/go-gin-starter/external/storage/aws_s3"
+	local "github/OfrenDialsa/go-gin-starter/external/storage/local"
 	"github/OfrenDialsa/go-gin-starter/external/storage/minio"
 )
 
@@ -15,6 +16,8 @@ func New(ctx context.Context, env *config.EnvironmentVariable) (StorageService, 
 		return minio.NewMinioStorageManager(env)
 	case "s3":
 		return awss3.NewS3StorageManager(ctx, env)
+	case "local":
+		return local.NewLocalStorageManager(env)
 	default:
 		return nil, errors.New("unsupported storage driver")
 	}
