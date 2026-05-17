@@ -4,7 +4,7 @@ Repositori ini adalah boilerplate backend menggunakan **Golang** dan **Gin Frame
 
 ## System Architecture
 
-![System Architecture](https://raw.githubusercontent.com/OfrenDialsa/go-backend-starter-kit/refs/heads/dev/diagram/system-architecture.png)
+![System Architecture](https://raw.githubusercontent.com/OfrenDialsa/go-backend-starter-kit/refs/heads/main/diagram/system-architecture.png)
 
 ### Komponen Utama:
 
