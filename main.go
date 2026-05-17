@@ -6,7 +6,7 @@ import (
 	"github/OfrenDialsa/go-gin-starter/cmd/api"
 	"github/OfrenDialsa/go-gin-starter/config"
 	"github/OfrenDialsa/go-gin-starter/database"
-	"github/OfrenDialsa/go-gin-starter/internal/metrics"
+	"github/OfrenDialsa/go-gin-starter/internal/infra/metrics"
 	"net/http"
 	"os"
 	"os/signal"

@@ -5,9 +5,9 @@ import (
 	"errors"
 	"github/OfrenDialsa/go-gin-starter/config"
 
-	awss3 "github/OfrenDialsa/go-gin-starter/external/storage/aws_s3"
-	local "github/OfrenDialsa/go-gin-starter/external/storage/local"
-	"github/OfrenDialsa/go-gin-starter/external/storage/minio"
+	awss3 "github/OfrenDialsa/go-gin-starter/internal/infra/storage/aws_s3"
+	local "github/OfrenDialsa/go-gin-starter/internal/infra/storage/local"
+	"github/OfrenDialsa/go-gin-starter/internal/infra/storage/minio"
 )
 
 func New(ctx context.Context, env *config.EnvironmentVariable) (StorageService, error) {

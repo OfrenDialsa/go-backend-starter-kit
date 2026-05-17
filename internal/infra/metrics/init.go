@@ -8,7 +8,5 @@ func Init() {
 		HTTPDuration,
 		AuthRequests,
 		AuthDuration,
-		EmailJobRequests,
-		EmailJobDuration,
 	)
 }
