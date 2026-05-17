@@ -1,6 +1,6 @@
 # Go Backend Starter Kit
 
-Repositori ini adalah boilerplate backend menggunakan **Golang** dan **Gin Framework** yang dirancang dengan fokus pada skalabilitas, keamanan, dan *observability*. Proyek ini mengimplementasikan *Layered Architecture* dan *Prometheus metrics*(Opsional).
+Repositori ini adalah boilerplate backend menggunakan **Golang** dan **Gin Framework** yang dirancang dengan fokus pada skalabilitas, keamanan, dan *observability*. Proyek ini mengimplementasikan *Layered Architecture* dan *Prometheus metrics* (Opsional).
 
 ## System Architecture
 
