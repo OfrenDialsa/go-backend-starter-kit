@@ -19,7 +19,7 @@ func NewServices(
 	db *database.WrapDB,
 	r Repositories,
 	st storage.StorageService,
-	mailer mailer.SmtpMailer,
+	mailer mailer.MailerService,
 	wg *sync.WaitGroup,
 ) Services {
 	return Services{

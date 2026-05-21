@@ -8,7 +8,6 @@ import (
 type StorageService interface {
 	UploadFile(ctx context.Context, fileName string, buffer *bytes.Buffer) error
 	GetPublicURL(fileName string) (string, error)
-	ExtractObjectKey(url string) string
 
 	FileExists(ctx context.Context, filePath string) (bool, error)
 	GetFileSize(ctx context.Context, filePath string) (int64, error)

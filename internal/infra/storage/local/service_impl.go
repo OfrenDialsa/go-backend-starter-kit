@@ -58,14 +58,6 @@ func (l *LocalStorageManager) GetPublicURL(fileName string) (string, error) {
 	return fmt.Sprintf("%s/%s", strings.TrimSuffix(l.publicURL, "/"), strings.TrimPrefix(fileName, "/")), nil
 }
 
-func (l *LocalStorageManager) ExtractObjectKey(url string) string {
-	if l.publicURL != "" && strings.HasPrefix(url, l.publicURL) {
-		key := strings.TrimPrefix(url, l.publicURL)
-		return strings.TrimPrefix(key, "/")
-	}
-	return url
-}
-
 func (l *LocalStorageManager) FileExists(ctx context.Context, filePath string) (bool, error) {
 	fullPath := filepath.Join(l.basePath, filePath)
 	_, err := os.Stat(fullPath)
@@ -88,9 +80,13 @@ func (l *LocalStorageManager) GetFileSize(ctx context.Context, filePath string) 
 }
 
 func (l *LocalStorageManager) DeleteFile(ctx context.Context, filePath string) error {
-	cleanedPath := l.ExtractObjectKey(filePath)
+	cleanPath := filePath
+	if l.publicURL != "" && strings.HasPrefix(filePath, l.publicURL) {
+		key := strings.TrimPrefix(filePath, l.publicURL)
+		cleanPath = strings.TrimPrefix(key, "/")
+	}
 
-	fullPath := filepath.Join(l.basePath, cleanedPath)
+	fullPath := filepath.Join(l.basePath, cleanPath)
 	err := os.Remove(fullPath)
 	if os.IsNotExist(err) {
 		return nil
