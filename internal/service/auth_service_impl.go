@@ -20,7 +20,7 @@ import (
 
 type authServiceImpl struct {
 	env         *config.EnvironmentVariable
-	mailer      mailer.SmtpMailer
+	mailer      mailer.MailerService
 	txStarter   TxStarter
 	userRepo    repository.UserRepository
 	sessionRepo repository.SessionRepository
@@ -31,7 +31,7 @@ type authServiceImpl struct {
 func NewAuthService(
 	env *config.EnvironmentVariable,
 	txStarter TxStarter,
-	mailer mailer.SmtpMailer,
+	mailer mailer.MailerService,
 	userRepo repository.UserRepository,
 	sessionRepo repository.SessionRepository,
 	wg *sync.WaitGroup,

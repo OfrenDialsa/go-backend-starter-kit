@@ -10,7 +10,7 @@ import (
 	"github/OfrenDialsa/go-gin-starter/internal/infra/storage/minio"
 )
 
-func New(ctx context.Context, env *config.EnvironmentVariable) (StorageService, error) {
+func NewStorageService(ctx context.Context, env *config.EnvironmentVariable) (StorageService, error) {
 	switch env.Storage.Type {
 	case "minio":
 		return minio.NewMinioStorageManager(env)

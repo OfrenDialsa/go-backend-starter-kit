@@ -9,25 +9,21 @@ import (
 	"gopkg.in/gomail.v2"
 )
 
-type SmtpMailer interface {
-	Send(req dto.MailerRequest) (string, error)
-}
-
-type smtpMailerImpl struct {
+type MailerServiceImpl struct {
 	Config       *config.EnvironmentVariable
 	MailFrom     string
 	MailFromName string
 }
 
-func NewSMTPMailer(cfg *config.EnvironmentVariable, mailFrom, mailFromName string) SmtpMailer {
-	return &smtpMailerImpl{
+func NewMailerService(cfg *config.EnvironmentVariable, mailFrom, mailFromName string) MailerService {
+	return &MailerServiceImpl{
 		Config:       cfg,
 		MailFrom:     mailFrom,
 		MailFromName: mailFromName,
 	}
 }
 
-func (s *smtpMailerImpl) Send(req dto.MailerRequest) (string, error) {
+func (s *MailerServiceImpl) Send(req dto.MailerRequest) (string, error) {
 	from := fmt.Sprintf("%s <%s>", s.MailFromName, s.MailFrom)
 
 	m := gomail.NewMessage()

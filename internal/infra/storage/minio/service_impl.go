@@ -46,11 +46,6 @@ func (r *MinioStorageManager) GetPublicURL(fileName string) (string, error) {
 	return r.PublicUrl + "/" + r.Bucket + "/" + fileName, nil
 }
 
-func (r *MinioStorageManager) ExtractObjectKey(url string) string {
-	prefix := r.PublicUrl + "/" + r.Bucket + "/"
-	return strings.TrimPrefix(url, prefix)
-}
-
 func (m *MinioStorageManager) FileExists(ctx context.Context, filePath string) (bool, error) {
 	_, err := m.Client.StatObject(ctx, m.Bucket, filePath, minio.StatObjectOptions{})
 	if err != nil {
@@ -71,7 +66,10 @@ func (m *MinioStorageManager) GetFileSize(ctx context.Context, filePath string) 
 }
 
 func (m *MinioStorageManager) DeleteFile(ctx context.Context, filePath string) error {
-	return m.Client.RemoveObject(ctx, m.Bucket, m.ExtractObjectKey(filePath), minio.RemoveObjectOptions{})
+	prefix := m.PublicUrl + "/" + m.Bucket + "/"
+	cleanPath := strings.TrimPrefix(filePath, prefix)
+
+	return m.Client.RemoveObject(ctx, m.Bucket, cleanPath, minio.RemoveObjectOptions{})
 }
 
 func (m *MinioStorageManager) HealthCheck(ctx context.Context) error {

@@ -3,15 +3,15 @@ package middleware
 import (
 	"fmt"
 	"github/OfrenDialsa/go-gin-starter/config"
-	"github/OfrenDialsa/go-gin-starter/database"
 	"github/OfrenDialsa/go-gin-starter/internal/infra/metrics"
 	"github/OfrenDialsa/go-gin-starter/internal/repository"
 	"github/OfrenDialsa/go-gin-starter/lib"
 	"github/OfrenDialsa/go-gin-starter/utils"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
+
+	"github.com/patrickmn/go-cache"
 
 	"github.com/gin-gonic/gin"
 )
@@ -20,19 +20,20 @@ type MiddlewareImpl struct {
 	env         *config.EnvironmentVariable
 	userRepo    repository.UserRepository
 	sessionRepo repository.SessionRepository
-	store       sync.Map
+	store       *cache.Cache
 }
 
 func NewMiddleware(
 	env *config.EnvironmentVariable,
-	db *database.WrapDB,
 	userRepo repository.UserRepository,
 	sessionRepo repository.SessionRepository,
+	store *cache.Cache,
 ) Middleware {
 	return &MiddlewareImpl{
 		env:         env,
 		userRepo:    userRepo,
 		sessionRepo: sessionRepo,
+		store:       store,
 	}
 }
 
@@ -109,36 +110,37 @@ func (m *MiddlewareImpl) RateLimit(limit int, window time.Duration) gin.HandlerF
 
 		now := time.Now()
 		windowSec := window.Seconds()
+		currStart := now.Truncate(window).Unix()
 
-		currWindowStart := now.Truncate(window).Unix()
+		var w *utils.CounterWindow
 
-		actual, _ := m.store.LoadOrStore(key, &utils.CounterWindow{
-			CurrWindow: currWindowStart,
-		})
-
-		w := actual.(*utils.CounterWindow)
+		if item, found := m.store.Get(key); found {
+			w = item.(*utils.CounterWindow)
+		} else {
+			w = &utils.CounterWindow{
+				CurrWindow: currStart,
+			}
+		}
 
 		w.Mu.Lock()
 
-		if currWindowStart > w.CurrWindow {
-			if currWindowStart-w.CurrWindow == int64(window.Seconds()) {
+		if currStart > w.CurrWindow {
+			if currStart-w.CurrWindow == int64(window.Seconds()) {
 				w.PrevCount = w.CurrCount
 			} else {
 				w.PrevCount = 0
 			}
 			w.LastWindow = w.CurrWindow
-			w.CurrWindow = currWindowStart
+			w.CurrWindow = currStart
 			w.CurrCount = 0
 		}
 
 		timePassed := now.Sub(time.Unix(w.CurrWindow, 0)).Seconds()
 		weight := (windowSec - timePassed) / windowSec
-
 		count := int(float64(w.PrevCount)*weight) + w.CurrCount
 
 		if count >= limit {
 			w.Mu.Unlock()
-
 			c.Header("X-RateLimit-Limit", fmt.Sprintf("%d", limit))
 			lib.RespondError(c, lib.ErrTooManyRequest)
 			c.Abort()
@@ -148,30 +150,10 @@ func (m *MiddlewareImpl) RateLimit(limit int, window time.Duration) gin.HandlerF
 		w.CurrCount++
 		w.Mu.Unlock()
 
+		m.store.Set(key, w, window*2)
+
 		c.Next()
 	}
-}
-
-func (m *MiddlewareImpl) CleanRateLimit(interval time.Duration, maxAge time.Duration) {
-	go func() {
-		for {
-			time.Sleep(interval)
-			now := time.Now().Unix()
-
-			m.store.Range(func(key, value interface{}) bool {
-				w := value.(*utils.CounterWindow)
-				w.Mu.Lock()
-
-				if now-w.CurrWindow > int64(maxAge.Seconds()) {
-					w.Mu.Unlock()
-					m.store.Delete(key)
-				} else {
-					w.Mu.Unlock()
-				}
-				return true
-			})
-		}
-	}()
 }
 
 func (m *MiddlewareImpl) Prometheus() gin.HandlerFunc {

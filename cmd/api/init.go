@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/nsqio/go-nsq"
+	"github.com/patrickmn/go-cache"
 	"github.com/rs/zerolog/log"
 )
 
@@ -21,27 +22,24 @@ type Setup struct {
 	Repository Repositories
 	WrapDB     *database.WrapDB
 	Producer   *nsq.Producer
-	Mailer     mailer.SmtpMailer
+	Mailer     mailer.MailerService
 }
 
 func Init(env *config.EnvironmentVariable, wrapDB *database.WrapDB) (*Setup, error) {
-	mailer := mailer.NewSMTPMailer(env, env.Mail.From, env.Mail.FromName)
-	repository := NewRepositories(env, wrapDB)
-	storage, err := storage.New(context.Background(), env)
+	mailer := mailer.NewMailerService(env, env.Mail.From, env.Mail.FromName)
+	storage, err := storage.NewStorageService(context.Background(), env)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to initialize storage service")
 		return nil, err
 	}
 
+	repository := NewRepositories(env, wrapDB)
 	service := NewServices(env, wrapDB, repository, storage, mailer, nil)
-
 	handlers := NewHandlers(env, service, repository)
 
-	mw := middleware.NewMiddleware(env, wrapDB, repository.User, repository.Session)
-
-	if mwImpl, ok := mw.(*middleware.MiddlewareImpl); ok {
-		mwImpl.CleanRateLimit(10*time.Minute, 30*time.Minute)
-	}
+	// clean rate limit cache
+	cCache := cache.New(5*time.Minute, 10*time.Minute)
+	mw := middleware.NewMiddleware(env, repository.User, repository.Session, cCache)
 
 	r := router.Handler{
 		Env:         env,

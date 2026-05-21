@@ -104,9 +104,12 @@ func (s *S3StorageManager) GetFileSize(ctx context.Context, filePath string) (in
 }
 
 func (s *S3StorageManager) DeleteFile(ctx context.Context, filePath string) error {
+	prefix := s.PublicUrl + "/" + s.Bucket + "/"
+	cleanPath := strings.TrimPrefix(filePath, prefix)
+
 	_, err := s.Client.DeleteObject(ctx, &s3.DeleteObjectInput{
 		Bucket: aws.String(s.Bucket),
-		Key:    aws.String(s.ExtractObjectKey(filePath)),
+		Key:    aws.String(cleanPath),
 	})
 	return err
 }
@@ -116,9 +119,4 @@ func (s *S3StorageManager) HealthCheck(ctx context.Context) error {
 		Bucket: aws.String(s.Bucket),
 	})
 	return err
-}
-
-func (r *S3StorageManager) ExtractObjectKey(url string) string {
-	prefix := r.PublicUrl + "/" + r.Bucket + "/"
-	return strings.TrimPrefix(url, prefix)
 }
