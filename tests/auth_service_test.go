@@ -25,7 +25,7 @@ type authServiceTestDeps struct {
 	userRepo    *mocks.UserRepository
 	sessionRepo *mocks.SessionRepository
 	txStarter   *mocks.TxStarter
-	mailer      *mocks.Mailer
+	mailer      *mocks.MailerService
 	mockTx      *mocks.Tx
 	svc         service.AuthService
 }
@@ -61,7 +61,7 @@ func setupAuthService(t *testing.T) *authServiceTestDeps {
 		sessionRepo: mocks.NewSessionRepository(t),
 		txStarter:   mocks.NewTxStarter(t),
 		mockTx:      mocks.NewTx(t),
-		mailer:      mocks.NewMailer(t),
+		mailer:      mocks.NewMailerService(t),
 	}
 
 	d.svc = service.NewAuthService(

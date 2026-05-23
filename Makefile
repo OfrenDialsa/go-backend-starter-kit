@@ -12,6 +12,7 @@ MOCKERY := ~/go/bin/mockery
 REPO_DIR := internal/repository
 SERVICE_DIR := internal/service
 STORAGE_DIR := internal/infra/storage
+MAILER_DIR := internal/infra/mailer
 MOCK_DIR := tests/mocks
 MOCK_PKG := mocks
 
@@ -103,7 +104,11 @@ MOCK_FILTER = 2>&1 | grep -E "Generating mock|Unable to find|could not find|erro
     /Unable to find|could not find|error/ { \
         print "  \033[0;31m[!] Error:\033[0m Interface not found" \
     }'
-	
+
+clean-mocks:
+	@echo "[X] Cleaning old mocks in $(MOCK_DIR)..."
+	@rm -rf $(MOCK_DIR)
+
 mocks:
 	@echo "[>>] Generating repository mocks..."
 	@mkdir -p $(MOCK_DIR)
@@ -117,7 +122,7 @@ mocks:
 	@$(MOCKERY) --name Tx --srcpkg github.com/jackc/pgx/v5 --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string $(MOCK_FILTER)
 	
 	@echo "[>>] Generating mailer mock..."
-	@$(MOCKERY) --name Sender --dir internal/mailer --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --structname Mailer --case snake --disable-version-string $(MOCK_FILTER)
+	@$(MOCKERY) --name MailerService --dir $(MAILER_DIR) --output $(MOCK_DIR) --outpkg $(MOCK_PKG) --case snake --disable-version-string $(MOCK_FILTER)
 	
 	@echo "[v] Done generating mocks"
 

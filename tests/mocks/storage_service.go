@@ -32,24 +32,6 @@ func (_m *StorageService) DeleteFile(ctx context.Context, filePath string) error
 	return r0
 }
 
-// ExtractObjectKey provides a mock function with given fields: url
-func (_m *StorageService) ExtractObjectKey(url string) string {
-	ret := _m.Called(url)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ExtractObjectKey")
-	}
-
-	var r0 string
-	if rf, ok := ret.Get(0).(func(string) string); ok {
-		r0 = rf(url)
-	} else {
-		r0 = ret.Get(0).(string)
-	}
-
-	return r0
-}
-
 // FileExists provides a mock function with given fields: ctx, filePath
 func (_m *StorageService) FileExists(ctx context.Context, filePath string) (bool, error) {
 	ret := _m.Called(ctx, filePath)

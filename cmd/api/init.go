@@ -4,6 +4,7 @@ import (
 	"context"
 	"github/OfrenDialsa/go-gin-starter/config"
 	"github/OfrenDialsa/go-gin-starter/database"
+	"github/OfrenDialsa/go-gin-starter/database/postgres"
 	"github/OfrenDialsa/go-gin-starter/internal/infra/mailer"
 	"github/OfrenDialsa/go-gin-starter/internal/infra/storage"
 	"github/OfrenDialsa/go-gin-starter/middleware"
@@ -26,6 +27,7 @@ type Setup struct {
 }
 
 func Init(env *config.EnvironmentVariable, wrapDB *database.WrapDB) (*Setup, error) {
+	db := postgres.InitDatabase(env)
 	mailer := mailer.NewMailerService(env, env.Mail.From, env.Mail.FromName)
 	storage, err := storage.NewStorageService(context.Background(), env)
 	if err != nil {
@@ -46,6 +48,7 @@ func Init(env *config.EnvironmentVariable, wrapDB *database.WrapDB) (*Setup, err
 		Middleware:  mw,
 		AuthHandler: handlers.Auth,
 		UserHandler: handlers.User,
+		DB:          db,
 	}
 
 	routes := router.NewRouter(env, r)
