@@ -129,6 +129,7 @@ func (m *MiddlewareImpl) RateLimit(limit int, window time.Duration) gin.HandlerF
 
 		m.mu.Unlock()
 		w.Mu.Lock()
+		defer w.Mu.Unlock()
 
 		if currStart > w.CurrWindow {
 			if currStart-w.CurrWindow == int64(window.Seconds()) {
@@ -154,7 +155,6 @@ func (m *MiddlewareImpl) RateLimit(limit int, window time.Duration) gin.HandlerF
 				remainingSeconds = 1
 			}
 
-			w.Mu.Unlock()
 			c.Header("X-RateLimit-Limit", fmt.Sprintf("%d", limit))
 			c.Header("Retry-After", fmt.Sprintf("%d", remainingSeconds))
 
@@ -171,7 +171,6 @@ func (m *MiddlewareImpl) RateLimit(limit int, window time.Duration) gin.HandlerF
 		}
 
 		w.CurrCount++
-		w.Mu.Unlock()
 		m.store.Set(key, w, window*2)
 
 		c.Next()
