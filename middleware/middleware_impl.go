@@ -7,8 +7,10 @@ import (
 	"github/OfrenDialsa/go-gin-starter/internal/repository"
 	"github/OfrenDialsa/go-gin-starter/lib"
 	"github/OfrenDialsa/go-gin-starter/utils"
+	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/patrickmn/go-cache"
@@ -21,6 +23,7 @@ type MiddlewareImpl struct {
 	userRepo    repository.UserRepository
 	sessionRepo repository.SessionRepository
 	store       *cache.Cache
+	mu          sync.Mutex
 }
 
 func NewMiddleware(
@@ -99,14 +102,14 @@ func (m *MiddlewareImpl) EmailVerified() gin.HandlerFunc {
 
 func (m *MiddlewareImpl) RateLimit(limit int, window time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		identifier := c.ClientIP()
+		i := c.ClientIP()
 		if user, exists := c.Get("user"); exists {
 			if claims, ok := user.(*lib.JWTClaims); ok {
-				identifier = claims.UserId
+				i = claims.UserId
 			}
 		}
 
-		key := "rate_limit:" + c.FullPath() + ":" + identifier
+		key := "rate_limit:" + c.FullPath() + ":" + i
 
 		now := time.Now()
 		windowSec := window.Seconds()
@@ -114,15 +117,19 @@ func (m *MiddlewareImpl) RateLimit(limit int, window time.Duration) gin.HandlerF
 
 		var w *utils.CounterWindow
 
+		m.mu.Lock()
 		if item, found := m.store.Get(key); found {
 			w = item.(*utils.CounterWindow)
 		} else {
 			w = &utils.CounterWindow{
 				CurrWindow: currStart,
 			}
+			m.store.Set(key, w, window*2)
 		}
 
+		m.mu.Unlock()
 		w.Mu.Lock()
+		defer w.Mu.Unlock()
 
 		if currStart > w.CurrWindow {
 			if currStart-w.CurrWindow == int64(window.Seconds()) {
@@ -130,6 +137,7 @@ func (m *MiddlewareImpl) RateLimit(limit int, window time.Duration) gin.HandlerF
 			} else {
 				w.PrevCount = 0
 			}
+
 			w.LastWindow = w.CurrWindow
 			w.CurrWindow = currStart
 			w.CurrCount = 0
@@ -140,16 +148,29 @@ func (m *MiddlewareImpl) RateLimit(limit int, window time.Duration) gin.HandlerF
 		count := int(float64(w.PrevCount)*weight) + w.CurrCount
 
 		if count >= limit {
-			w.Mu.Unlock()
+			nextWindowStart := w.CurrWindow + int64(window.Seconds())
+			remainingSeconds := nextWindowStart - now.Unix()
+
+			if remainingSeconds <= 0 {
+				remainingSeconds = 1
+			}
+
 			c.Header("X-RateLimit-Limit", fmt.Sprintf("%d", limit))
-			lib.RespondError(c, lib.ErrTooManyRequest)
+			c.Header("Retry-After", fmt.Sprintf("%d", remainingSeconds))
+
+			c.JSON(http.StatusTooManyRequests, gin.H{
+				"success": false,
+				"message": "Too many requests, please try again later.",
+				"error": gin.H{
+					"code":        "TOO_MANY_REQUESTS",
+					"retry_after": remainingSeconds,
+				},
+			})
 			c.Abort()
 			return
 		}
 
 		w.CurrCount++
-		w.Mu.Unlock()
-
 		m.store.Set(key, w, window*2)
 
 		c.Next()
